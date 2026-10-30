@@ -56,7 +56,7 @@ QPushButton#primary:disabled { background: #e8eaed; color: #9aa0a6; }
 QPushButton#danger { background: #d93025; color: white; border: none; padding: 7px 22px; }
 QPushButton#danger:hover { background: #c5221f; }
 QLineEdit { border: 1px solid #dadce0; border-radius: 8px; padding: 6px 8px; background: white;
-            font-family: Consolas, Menlo, monospace; font-size: 14px; }
+            font-family: MONO; font-size: 14px; }
 QLineEdit:focus { border: 2px solid #1a73e8; padding: 5px 7px; }
 QLineEdit[invalid="true"] { border: 2px solid #d93025; padding: 5px 7px; }
 QLineEdit:read-only { background: #f1f3f4; color: #5f6368; }
@@ -72,7 +72,7 @@ QProgressBar::chunk { background: #1a73e8; border-radius: 3px; }
 #banner { background: #e8f0fe; border-radius: 10px; }
 #info { background: #e8f0fe; color: #174ea6; border-radius: 8px; padding: 10px 12px; }
 #thumb { background: #202124; border-radius: 6px; color: #9aa0a6; }
-"""
+""".replace("MONO", "Consolas" if sys.platform == "win32" else "Menlo")
 
 
 def repolish(widget, name, value):
