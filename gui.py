@@ -16,7 +16,7 @@ from pathlib import Path
 from string import Template
 
 import cv2
-from PySide6.QtCore import (QEasingCurve, QPointF, QPropertyAnimation, QRectF, QSettings, QStandardPaths, Qt,
+from PySide6.QtCore import (QEasingCurve, QParallelAnimationGroup, QPropertyAnimation, QRectF, QSettings, QStandardPaths, Qt,
                             QThread, QTimer, QUrl, QVariantAnimation, Signal)
 from PySide6.QtGui import QColor, QDesktopServices, QFont, QImage, QPainter, QPalette, QPen, QPixmap
 from PySide6.QtWidgets import (QApplication, QButtonGroup, QCheckBox, QDialog, QFileDialog, QFrame,
@@ -25,7 +25,7 @@ from PySide6.QtWidgets import (QApplication, QButtonGroup, QCheckBox, QDialog, Q
 
 import main
 import updater
-from icon import YELLOW, app_icon, draw_icon
+from icon import app_icon, draw_icon
 from version import __version__
 
 APP_NAME = "Zaman Makinesi"
@@ -144,6 +144,19 @@ def fade_in(widget, ms=280):
     anim.start()
 
 
+def collapse_out(widget, ms=240):
+    # Satırı soldurup boyunu sıfırlayarak kaldırır, sonra siler
+    widget.setEnabled(False)
+    effect = QGraphicsOpacityEffect(widget)
+    widget.setGraphicsEffect(effect)
+    group = QParallelAnimationGroup(widget)
+    group.addAnimation(QPropertyAnimation(effect, b"opacity", duration=ms, startValue=1.0, endValue=0.0))
+    group.addAnimation(QPropertyAnimation(widget, b"maximumHeight", duration=ms, startValue=widget.height(),
+                                          endValue=0, easingCurve=QEasingCurve.InOutCubic))
+    group.finished.connect(widget.deleteLater)
+    group.start()
+
+
 def ease(t, curve=QEasingCurve.OutCubic):
     return QEasingCurve(curve).valueForProgress(min(max(t, 0.0), 1.0))
 
@@ -198,8 +211,8 @@ def output_path(out_dir, src, start, monthly=True):
 # Saatler ve animasyonlu parçalar
 # =============================================================================
 
-class Clock(QWidget):
-    """Gerçek saati gösteren analog saat. İşleme sırasında akrep ve yelkovan geriye döner."""
+class Logo(QWidget):
+    """Uygulama simgesi. İbreler gerçek saati gösterir; işleme sırasında geriye döner."""
 
     def __init__(self, size):
         super().__init__()
@@ -220,52 +233,22 @@ class Clock(QWidget):
         if self.spinning:
             self.spin += dt * 0.7
         elif self.spin:
-            # Durunca kısa bir süzülmeyle gerçek saate geri döner
-            self.spin = max(self.spin - dt * 1.5, 0.0) if self.spin % 1 > 0.02 else 0.0
+            # Durunca en yakın tam tura süzülüp gerçek saate döner
+            rest = self.spin % 1
+            self.spin = self.spin - rest if rest < dt * 1.5 else self.spin - dt * 1.5
         if self.isVisible():
             self.update()
 
     def paintEvent(self, event):
         p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
-        s = self.width()
-        c = QPointF(s / 2, s / 2)
-        r = s / 2 - s * 0.06
-
-        p.setPen(QPen(QColor(theme["primary"]), max(s * 0.06, 1.5)))
-        p.setBrush(QColor(theme["card"]))
-        p.drawEllipse(c, r, r)
-        if s >= 60:
-            p.setPen(QPen(QColor(theme["border"]), s * 0.02, Qt.SolidLine, Qt.RoundCap))
-            for i in range(12):
-                p.save()
-                p.translate(c)
-                p.rotate(i * 30)
-                p.drawLine(QPointF(0, -r * 0.82), QPointF(0, -r * 0.92))
-                p.restore()
-
         now = datetime.now()
         # Saniye ibresi her saniyede küçük bir yaylanmayla ilerler
-        sec = now.second - 1 + ease(now.microsecond / 250000, QEasingCurve.OutBack)
+        second = now.second - 1 + ease(now.microsecond / 250000, QEasingCurve.OutBack)
         minute = now.minute + now.second / 60
         hour = now.hour % 12 + minute / 60
-        back = self.spin * 360
-
-        def hand(angle, length, width, color):
-            p.save()
-            p.translate(c)
-            p.rotate(angle)
-            p.setPen(QPen(QColor(color), width, Qt.SolidLine, Qt.RoundCap))
-            p.drawLine(QPointF(0, r * 0.12), QPointF(0, -length))
-            p.restore()
-
-        hand(hour * 30 - back / 12, r * 0.5, max(s * 0.07, 2.2), theme["text"])
-        hand(minute * 6 - back, r * 0.75, max(s * 0.05, 1.6), theme["text"])
-        if s >= 40:
-            hand(sec * 6 - back * 3, r * 0.82, max(s * 0.02, 1.0), theme["primary"])
-        p.setPen(Qt.NoPen)
-        p.setBrush(YELLOW)
-        p.drawEllipse(c, s * 0.05, s * 0.05)
+        s = self.width()
+        draw_icon(p, QRectF(0, 0, s, s), turn=self.spin,
+                  clock=(hour, minute, second if s >= 64 else None))
 
 
 class DropOverlay(QWidget):
@@ -344,7 +327,7 @@ class DropZone(QFrame):
     def __init__(self):
         super().__init__()
         self.setObjectName("dropZone")
-        self.clock = Clock(120)
+        self.clock = Logo(128)
         self.label = QLabel()
         self.label.setAlignment(Qt.AlignCenter)
         layout = QVBoxLayout(self)
@@ -399,9 +382,6 @@ class DateRow(QWidget):
     changed = Signal()
     completed = Signal(str)          # geçerli bir tarih yazıldı
     next_requested = Signal(object)  # Enter'a basıldı
-    remove_requested = Signal(object)
-    preview_requested = Signal(object)
-
     def __init__(self):
         super().__init__()
         self.state = READY
@@ -417,36 +397,25 @@ class DateRow(QWidget):
         self.edit.editingFinished.connect(self._on_leave)
         self.edit.returnPressed.connect(lambda: self.next_requested.emit(self))
 
-        self.preview_btn = QToolButton(text="Önizle")
-        self.preview_btn.clicked.connect(lambda: self.preview_requested.emit(self))
-        self.remove_btn = QToolButton(text="×")
-        self.remove_btn.setObjectName("remove")
-        self.remove_btn.setToolTip("Bu tarihi kaldır")
-        self.remove_btn.clicked.connect(lambda: self.remove_requested.emit(self))
-
         self.bar = QProgressBar()
         self.bar.setRange(0, 1000)
         self.bar.setTextVisible(False)
         self.bar.setFixedSize(120, 6)
         self.status = QLabel()
-        self.status.setMinimumWidth(130)
         self.show_btn = QToolButton(text="Göster")
         self.show_btn.setToolTip("Çıktıyı klasöründe göster")
         self.show_btn.clicked.connect(lambda: self.output and reveal(self.output))
-        # Tab tuşu sadece tarih alanları arasında gezsin
-        for b in (self.preview_btn, self.remove_btn, self.show_btn):
-            b.setFocusPolicy(Qt.ClickFocus)
+        self.show_btn.setFocusPolicy(Qt.ClickFocus)  # Tab sadece tarih alanları arasında gezsin
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
         layout.addWidget(self.edit)
-        layout.addWidget(self.preview_btn)
-        layout.addWidget(self.remove_btn)
-        layout.addSpacing(10)
+        layout.addSpacing(14)
         layout.addWidget(self.bar)
-        layout.addWidget(self.status, 1)
+        layout.addWidget(self.status)
         layout.addWidget(self.show_btn)
+        layout.addStretch()
         self.render()
 
     def digits(self):
@@ -497,8 +466,6 @@ class DateRow(QWidget):
     def render(self):
         finished = self.state in (DONE, EXISTS)
         self.edit.setReadOnly(self.locked or finished)
-        self.remove_btn.setEnabled(not self.locked)
-        self.preview_btn.setEnabled(self.value() is not None and not self.problem)
         visible_problem = self.problem and (self.touched or len(self.digits()) == 14)
         repolish(self.edit, "invalid", bool(visible_problem))
 
@@ -513,7 +480,7 @@ class DateRow(QWidget):
         elif self.state == RUNNING:
             text, style = f"%{int(self.progress * 100)}", "muted"
         elif self.state == DONE:
-            text, style = "✓  Tamamlandı", "ok"
+            text, style = "✓  Tamamlandı" + (f"  ·  {self.message} sürdü" if self.message else ""), "ok"
         elif self.state == EXISTS:
             text, style = "✓  Zaten var", "muted"
         elif self.state == ERROR:
@@ -521,7 +488,8 @@ class DateRow(QWidget):
         else:
             text, style = "", "muted"
         self.status.setText(text)
-        self.status.setToolTip(str(self.output) if finished and self.output else self.message)
+        self.status.setToolTip(str(self.output) if finished and self.output else
+                               self.message if self.state == ERROR else "")
         self.status.setObjectName(style)
         repolish(self.status, "s", style)
 
@@ -531,7 +499,6 @@ class VideoRow(QFrame):
     date_completed = Signal(str)
     next_requested = Signal(object)                # DateRow
     remove_requested = Signal(object)
-    preview_requested = Signal(object, object)     # VideoRow, DateRow
 
     def __init__(self, path):
         super().__init__()
@@ -579,10 +546,19 @@ class VideoRow(QFrame):
         self.add_btn = QToolButton(text="+ Tarih ekle")
         self.add_btn.setFocusPolicy(Qt.ClickFocus)
         self.add_btn.clicked.connect(lambda: self.add_date(focus=True))
+        self.del_btn = QToolButton(text="−  Son tarihi sil")
+        self.del_btn.setToolTip("En alttaki tarihi siler")
+        self.del_btn.setFocusPolicy(Qt.ClickFocus)
+        self.del_btn.clicked.connect(self.remove_last_date)
+        date_buttons = QHBoxLayout()
+        date_buttons.setSpacing(4)
+        date_buttons.addWidget(self.add_btn)
+        date_buttons.addWidget(self.del_btn)
+        date_buttons.addStretch()
         dates = QVBoxLayout()
         dates.setSpacing(8)
         dates.addLayout(self.date_list)
-        dates.addWidget(self.add_btn, 0, Qt.AlignLeft)
+        dates.addLayout(date_buttons)
         dates.addStretch()
 
         layout = QHBoxLayout(self)
@@ -603,8 +579,6 @@ class VideoRow(QFrame):
         row.changed.connect(self.validate)
         row.completed.connect(self.date_completed)
         row.next_requested.connect(self.next_requested)
-        row.remove_requested.connect(self.remove_date)
-        row.preview_requested.connect(lambda r: self.preview_requested.emit(self, r))
         self.dates.append(row)
         self.date_list.addWidget(row)
         if focus:
@@ -612,10 +586,22 @@ class VideoRow(QFrame):
             fade_in(row)
         self.validate()
 
-    def remove_date(self, row):
+    def removable(self):
+        # Silinebilecek en alttaki tarih (biten tarihler silinmez; tek tarih kalırsa da silinmez)
+        open_rows = [d for d in self.dates if d.state not in (DONE, EXISTS)]
+        return open_rows[-1] if len(self.dates) > 1 and open_rows else None
+
+    def remove_last_date(self):
+        row = self.removable()
+        if row:
+            self.remove_date(row)
+
+    def remove_date(self, row, animate=True):
         self.dates.remove(row)
-        row.hide()
-        row.deleteLater()
+        if animate:
+            collapse_out(row)
+        else:
+            row.deleteLater()
         self.validate()
 
     def remove_finished(self):
@@ -641,6 +627,7 @@ class VideoRow(QFrame):
                 row.problem = ""
                 seen.add(value)
             row.render()
+        self.del_btn.setVisible(self.removable() is not None)
         self.changed.emit()
 
     def problems(self):
@@ -664,6 +651,7 @@ class VideoRow(QFrame):
         self.locked = locked
         self.remove_btn.setEnabled(not locked)
         self.add_btn.setEnabled(not locked)
+        self.del_btn.setEnabled(not locked)
         for row in self.dates:
             row.set_locked(locked)
 
@@ -696,11 +684,14 @@ class Worker(QThread):
                 self.job_finished.emit(row, EXISTS, "")
                 continue
             self.progress.emit(row, 0.0)
+            began = time.monotonic()
             try:
                 main.process(src, dst, start,
                              on_progress=lambda f, row=row: self.progress.emit(row, f),
                              should_stop=lambda: self.stopped)
-                self.job_finished.emit(row, DONE, "")
+                secs = round(time.monotonic() - began)
+                took = f"{secs // 60} dk {secs % 60} sn" if secs >= 60 else f"{max(secs, 1)} sn"
+                self.job_finished.emit(row, DONE, took)
             except main.Cancelled:
                 self.job_finished.emit(row, READY, "")
                 return
@@ -727,38 +718,6 @@ def ask(parent, title, text, details, yes, no, default_yes=True):
     box.setDefaultButton(yes_btn if yes_btn and default_yes else no_btn)
     box.exec()
     return yes_btn is not None and box.clickedButton() is yes_btn
-
-
-class PreviewDialog(QDialog):
-    def __init__(self, parent, path, start):
-        super().__init__(parent)
-        self.setWindowTitle(f"Önizleme · {path.name}")
-        frame, _ = read_first_frame(path)
-        image = QLabel()
-        image.setAlignment(Qt.AlignCenter)
-        if frame is None:
-            image.setText("Video açılamadı")
-        else:
-            main.TextRenderer().draw(frame, main.format_ts(start), main.MARGIN_LEFT, main.MARGIN_TOP)
-            pix = frame_to_pixmap(frame)
-            if pix.width() > 880 or pix.height() > 495:
-                pix = pix.scaled(880, 495, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            image.setPixmap(pix)
-
-        info = QLabel("ⓘ  Bu sadece bir önizlemedir. Video henüz işlenmedi; "
-                      "videonun ilk karesi saatin nasıl görüneceğini göstermek için kullanıldı.")
-        info.setObjectName("info")
-        info.setWordWrap(True)
-        close = QPushButton("Kapat")
-        close.setObjectName("primary")
-        close.clicked.connect(self.accept)
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 16)
-        layout.setSpacing(14)
-        layout.addWidget(info)
-        layout.addWidget(image)
-        layout.addWidget(close, 0, Qt.AlignRight)
 
 
 class SettingsDialog(QDialog):
@@ -844,7 +803,12 @@ class SettingsDialog(QDialog):
         self.out_path.setText(self.out_path.fontMetrics().elidedText(str(w.out_dir), Qt.ElideMiddle, 340))
         self.out_path.setToolTip(str(w.out_dir))
         example = output_path(w.out_dir, Path("video.mp4"), datetime(2026, 10, 12, 14, 30), w.monthly)
-        self.example.setText(f"Örnek: {example.relative_to(w.out_dir.parent)}")
+        if w.monthly:
+            text = ("Her ay için ayrı bir klasör açılır. Klasör, videoya basılan tarihin ayıdır "
+                    "(videoyu işlediğiniz gün değil).")
+        else:
+            text = "Tüm çıktılar alt klasör açılmadan doğrudan çıktı klasörüne kaydedilir."
+        self.example.setText(f"{text}<br>Örnek: <b>{example.relative_to(w.out_dir.parent)}</b>")
 
     def _pick_output(self):
         self.main.pick_output()
@@ -908,7 +872,7 @@ class MainWindow(QMainWindow):
         self.banner.hide()
 
         # Üst bilgi: canlı saat, başlık, ayarlar
-        self.clock = Clock(30)
+        self.clock = Logo(34)
         self.title = QLabel()
         self.title.setObjectName("title")
         self.subtitle = QLabel()
@@ -929,8 +893,6 @@ class MainWindow(QMainWindow):
         self.add_btn.clicked.connect(self.pick_videos)
         self.remember = QCheckBox("Yeni videolara son girilen tarihi yaz")
         self.remember.setToolTip("İşaretliyken eklenen her videonun tarih alanı, en son yazdığınız tarihle dolu gelir.")
-        self.remember.setChecked(self.settings.value("remember_date", False, type=bool))
-        self.remember.toggled.connect(lambda on: self.settings.setValue("remember_date", on))
         self.clear_done_btn = QPushButton("Bitenleri temizle")
         self.clear_done_btn.clicked.connect(self.clear_finished)
         self.clear_btn = QPushButton("Listeyi temizle")
@@ -1134,7 +1096,6 @@ class MainWindow(QMainWindow):
                 row.date_completed.connect(self.remember_date)
                 row.next_requested.connect(self.focus_next_date)
                 row.remove_requested.connect(self.remove_video)
-                row.preview_requested.connect(self.preview)
                 self.videos.append(row)
                 known[f.resolve()] = row
                 self.list_layout.addWidget(row)
@@ -1161,8 +1122,7 @@ class MainWindow(QMainWindow):
 
     def remove_video(self, row):
         self.videos.remove(row)
-        row.hide()
-        row.deleteLater()
+        collapse_out(row)
         self.refresh()
 
     def clear(self):
@@ -1171,8 +1131,7 @@ class MainWindow(QMainWindow):
                    "Temizle", "Vazgeç", default_yes=False):
             return
         for row in self.videos:
-            row.hide()
-            row.deleteLater()
+            collapse_out(row)
         self.videos.clear()
         self.refresh()
 
@@ -1184,11 +1143,6 @@ class MainWindow(QMainWindow):
             if not any(not d.is_empty() for d in video.dates):
                 self.remove_video(video)
         self.refresh()
-
-    def preview(self, video, date_row):
-        start = date_row.value()
-        if start:
-            PreviewDialog(self, video.path, start).exec()
 
     # --- Sürükle-bırak ----------------------------------------------------------
 

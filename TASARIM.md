@@ -36,13 +36,13 @@ ayrı bir çıktı üretir. İşler sırayla, tek tek işlenir. Çıktıda ses y
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
-│ (saat) 3 video · 5 çıktı  2 / 5 tamamlandı                    [⚙ Ayarlar] │
+│ (logo) 3 video · 5 çıktı  2 / 5 tamamlandı                    [⚙ Ayarlar] │
 │ [+ Video ekle] ☐ Yeni videolara son girilen tarihi yaz  [Bitenleri temizle] [Listeyi temizle] │
 ├──────────────────────────────────────────────────────────────────────────┤
-│ [kare] toplanti.mp4   [12.10.2026 14:30:00] Önizle ×  ✓ Tamamlandı  Göster │
-│        02:14 · 1080p  [13.10.2026 09:00:00] Önizle ×  ███████░░ %42        │
-│        Kaldır         + Tarih ekle                                       │
-│ [kare] sahne.mov      [31.02.2026 25:00:00] Önizle ×  Geçersiz tarih       │
+│ [kare] toplanti.mp4   [12.10.2026 14:30:00]  ✓ Tamamlandı · 42 sn sürdü  Göster │
+│        02:14 · 1080p  [13.10.2026 09:00:00]  ███████░░ %42                  │
+│        Kaldır         + Tarih ekle   − Son tarihi sil                       │
+│ [kare] sahne.mov      [31.02.2026 25:00:00]  Geçersiz tarih                 │
 ├──────────────────────────────────────────────────────────────────────────┤
 │ Çıktı klasörü                                                            │
 │ C:\Users\ali\Downloads\Zaman Makinesi  Değiştir  Klasörü aç  [▶ Videoları işle (3)] │
@@ -58,7 +58,7 @@ ayrı bir çıktı üretir. İşler sırayla, tek tek işlenir. Çıktıda ses y
 - Aynı video tekrar eklenirse yeni satır açılmaz, mevcut satır vurgulanır.
 - Video açılamıyorsa satır eklenir ama kırmızı "Video açılamadı" yazar, tarih alanı olmaz.
 - Eklenen her videoya bir tarih alanı açılır. Boş gelir; **"Yeni videolara son girilen
-  tarihi yaz"** işaretliyse en son yazılan tarihle dolu gelir (seçim hatırlanır).
+  tarihi yaz"** işaretliyse en son yazılan tarihle dolu gelir. Bu kutu her açılışta kapalı başlar.
 - İmleç yeni videonun ilk boş tarih alanına gider.
 
 ### Tarih alanı
@@ -68,9 +68,9 @@ ayrı bir çıktı üretir. İşler sırayla, tek tek işlenir. Çıktıda ses y
   alanına geçer. Butonlar Tab ile gezilmez.
 - Sorunlu alan kırmızı çerçeve + sebep: "Geçersiz tarih", "Tarih eksik" (alandan
   çıkınca), "Bu tarih zaten ekli".
-- **Önizle**: tarih geçerliyse aktif. Videonun ilk karesine saati basıp gösterir;
-  pencerede "Bu sadece bir önizlemedir" uyarısı vardır.
-- **+ Tarih ekle** yeni boş alan açar; her alanın sil (×) butonu vardır.
+- **+ Tarih ekle** yeni boş alan açar. Yanındaki **− Son tarihi sil** en alttaki
+  (bitmemiş) tarihi siler; video tek tarihliyse görünmez. Videonun tamamı **Kaldır** ile silinir.
+- Arayüzde önizleme yoktur; gerekirse `uv run onizleme.py` kullanılır.
 
 ### İş durumları (sağ sütun)
 | Durum | Görünüm |
@@ -78,7 +78,7 @@ ayrı bir çıktı üretir. İşler sırayla, tek tek işlenir. Çıktıda ses y
 | Hazır | boş |
 | Sırada | gri "Sırada" |
 | İşleniyor | mavi ilerleme çubuğu + %X |
-| Tamamlandı | yeşil "✓ Tamamlandı" (yumuşakça belirir) + **Göster** (dosyayı klasöründe seçili açar) |
+| Tamamlandı | yeşil "✓ Tamamlandı · 42 sn sürdü" (yumuşakça belirir) + **Göster** (dosyayı klasöründe seçili açar) |
 | Zaten var | gri "✓ Zaten var" + **Göster** |
 | Hata | kırmızı ⚠ + kısa mesaj; bir sonraki çalıştırmada tekrar denenir |
 
@@ -95,7 +95,7 @@ ayrı bir çıktı üretir. İşler sırayla, tek tek işlenir. Çıktıda ses y
 
 ### İşleme sırasında
 - Tarih alanları, ekleme/silme, temizleme, klasör değiştirme kilitlenir.
-- Başlıktaki saatin akrebi ve yelkovanı **geriye** döner.
+- Başlıktaki logonun akrebi ve yelkovanı **geriye** döner.
 - Ana buton **Durdur** olur. Durdurulunca o anki iş kesilir (yarım dosya silinir),
   kalan işler Hazır'a döner.
 
@@ -112,15 +112,17 @@ ayrı bir çıktı üretir. İşler sırayla, tek tek işlenir. Çıktıda ses y
 
 ### Ayarlar (⚙)
 - Tema: **Sistem / Açık / Koyu** (Sistem seçiliyse Windows teması değişince uygulama da değişir).
-- Çıktı klasörü + "Çıktıları aylara göre klasörle" (örnek yol gösterilir).
+- Çıktı klasörü + "Çıktıları aylara göre klasörle"; açıkken de kapalıyken de ne olacağı
+  bir cümleyle ve örnek yolla anlatılır.
 - Sürüm + **Güncellemeleri denetle**.
 - Tüm seçimler hatırlanır (QSettings).
 
 ### Animasyonlar
 - Açılış: simge yaylanarak büyür, ok çizilir, ibreler bir tur geri döner, yazı belirir.
-- Liste boşken ortada gerçek saati gösteren büyük bir saat (saniye ibresi yaylanarak ilerler).
-- Video sürüklenince bütün pencereye mavi bir katman gelir; ortada ibreleri geriye dönen simge.
-- Yeni satırlar ve "✓ Tamamlandı" yumuşakça belirir.
+- Her yerde aynı logo kullanılır (açılış, sol üst, boş liste, sürükleme). Sol üstte ve boş
+  listede logonun ibreleri gerçek saati gösterir; büyük logoda sarı saniye ibresi yaylanarak ilerler.
+- Video sürüklenince bütün pencereye mavi bir katman gelir; ortada ibreleri geriye dönen logo.
+- Yeni satırlar ve "✓ Tamamlandı" yumuşakça belirir; silinen tarih ve videolar solup kapanarak gider.
 
 ## Güncelleme
 

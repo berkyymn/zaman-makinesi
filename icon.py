@@ -19,8 +19,9 @@ YELLOW = QColor("#fbbc04")
 TICK = QColor("#c6d6f2")
 
 
-def draw_icon(p, rect, arc=1.0, turn=0.0):
+def draw_icon(p, rect, arc=1.0, turn=0.0, clock=None):
     # arc: dış okun ne kadarı çizilsin (0-1). turn: akrep/yelkovan kaç tur geri dönsün.
+    # clock: (saat, dakika, saniye) verilirse ibreler o saati gösterir; saniye None olabilir.
     s = rect.width()
     cx, cy = rect.center().x(), rect.center().y()
     p.save()
@@ -63,14 +64,20 @@ def draw_icon(p, rect, arc=1.0, turn=0.0):
         p.setBrush(Qt.white)
         p.drawPath(head)
 
-    # Akrep 10'u, yelkovan 12'yi gösterir; turn kadar geri döner
+    # Varsayılan: akrep 10'da, yelkovan 12'de (simgedeki duruş); turn kadar geri döner
     def hand(angle_deg, length, width):
         a = math.radians(angle_deg)
         p.setPen(QPen(BLUE, width, Qt.SolidLine, Qt.RoundCap))
         p.drawLine(QPointF(cx, cy), QPointF(cx + math.sin(a) * length, cy - math.cos(a) * length))
 
-    hand(-60 - turn * 30, face * 0.48, s * 0.05)
-    hand(0 - turn * 360, face * 0.72, s * 0.042)
+    hour, minute, second = clock if clock else (10, 0, None)
+    hand(hour * 30 - turn * 30, face * 0.48, s * 0.05)
+    hand(minute * 6 - turn * 360, face * 0.72, s * 0.042)
+    if second is not None:
+        a = math.radians(second * 6 - turn * 1080)
+        p.setPen(QPen(YELLOW, s * 0.016, Qt.SolidLine, Qt.RoundCap))
+        p.drawLine(QPointF(cx - math.sin(a) * face * 0.15, cy + math.cos(a) * face * 0.15),
+                   QPointF(cx + math.sin(a) * face * 0.8, cy - math.cos(a) * face * 0.8))
     p.setPen(Qt.NoPen)
     p.setBrush(YELLOW)
     p.drawEllipse(QPointF(cx, cy), s * 0.038, s * 0.038)

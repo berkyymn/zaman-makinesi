@@ -18,7 +18,6 @@ Yönetici izni gerekmez. Yeni sürüm çıktığında uygulama açılışta habe
 2. Her videonun yanına başlangıç tarihini yazın: `GG.AA.YYYY SS:DD:SS`.
    **Enter** sizi bir sonraki boş tarihe götürür.
    Aynı videodan farklı tarihlerle birden çok çıktı için **+ Tarih ekle**.
-   **Önizle** saatin videoda nasıl duracağını gösterir.
 3. **Videoları işle**'ye tıklayın. Bitenlerin yanında ✓ çıkar, **Göster** dosyayı açar.
 
 Çıktılar `İndirilenler\Zaman Makinesi` içinde, videoya basılan tarihin ayına göre
@@ -34,7 +33,7 @@ Klasörü, aylık düzeni ve açık/koyu temayı **⚙ Ayarlar**'dan değiştire
 ```bash
 uv run gui.py                 # arayüz
 uv run main.py [video.mp4]    # komut satırı: girdi/ klasöründekileri cikti/'ya işler
-uv run onizleme.py            # komut satırı: tek kare önizleme
+uv run onizleme.py            # komut satırı: saatin nasıl duracağını tek karede gösterir
 ```
 
 Yazı boyutu, konum, renk ve kalite ayarları `main.py`'nin başındaki **AYARLAR** bölümündedir;
