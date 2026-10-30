@@ -1,0 +1,55 @@
+# v ile başlayan bir etiket gönderildiğinde Windows kurulum dosyasını derleyip yayınlar:
+#   git tag v1.0.0 && git push --tags
+name: Yayınla
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Bağımlılıkları kur
+        run: uv sync --locked
+
+      - name: Sürüm etiketle aynı mı
+        shell: bash
+        run: |
+          VERSION=$(uv run python -c "import version; print(version.__version__)")
+          if [ "v$VERSION" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::version.py ($VERSION) ile etiket ($GITHUB_REF_NAME) farklı"
+            exit 1
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Uygulamayı paketle
+        run: uv run pyinstaller --noconfirm --clean --windowed --name ZamanMakinesi --icon assets/icon.ico --collect-data imageio_ffmpeg gui.py
+
+      - name: Paketlenmiş uygulamayı dene (ffmpeg, OpenCV, font, Türkçe dosya adı)
+        run: |
+          $p = Start-Process dist\ZamanMakinesi\ZamanMakinesi.exe -ArgumentList "--self-test" -Wait -PassThru
+          Get-Content "$env:TEMP\zaman-makinesi-selftest.log"
+          if ($p.ExitCode -ne 0) { exit 1 }
+
+      - name: Kurulum dosyasını oluştur
+        run: |
+          choco install innosetup -y --no-progress
+          $iscc = (Get-ChildItem "C:\Program Files*\Inno Setup*\ISCC.exe" | Select-Object -First 1).FullName
+          & $iscc "/DAppVersion=$env:VERSION" packaging\installer.iss
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: version.json oluştur
+        run: uv run python packaging/write_version_json.py dist/ZamanMakinesi-Setup.exe
+
+      - name: GitHub'da yayınla
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create $env:GITHUB_REF_NAME dist/ZamanMakinesi-Setup.exe dist/version.json --title "Zaman Makinesi $env:VERSION" --notes-file dist/notes.md

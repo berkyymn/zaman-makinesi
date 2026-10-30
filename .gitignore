@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+.idea/
+build/
+dist/
+*.spec
+onizleme.png
+
+# Videolar depoya girmesin
+girdi/*
+!girdi/.gitkeep
+cikti/*
+!cikti/.gitkeep

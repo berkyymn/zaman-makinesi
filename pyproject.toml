@@ -1,0 +1,16 @@
+[project]
+name = "zaman-makinesi"
+version = "1.0.0"  # uygulamanın sürümü version.py'dedir
+requires-python = ">=3.11"
+dependencies = [
+    "imageio-ffmpeg>=0.6.0",
+    "numpy>=2.0.2",
+    "opencv-python>=5.0.0.93",
+    "pillow>=11.3.0",
+    "pyside6-essentials>=6.12.0",
+]
+
+[dependency-groups]
+dev = [
+    "pyinstaller>=6.22.3",
+]
