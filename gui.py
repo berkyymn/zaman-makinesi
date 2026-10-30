@@ -16,7 +16,7 @@ from pathlib import Path
 from string import Template
 
 import cv2
-from PySide6.QtCore import (QEasingCurve, QParallelAnimationGroup, QPropertyAnimation, QRectF, QSettings, QStandardPaths, Qt,
+from PySide6.QtCore import (QEasingCurve, QParallelAnimationGroup, QPointF, QPropertyAnimation, QRectF, QSettings, QStandardPaths, Qt,
                             QThread, QTimer, QUrl, QVariantAnimation, Signal)
 from PySide6.QtGui import QColor, QDesktopServices, QFont, QImage, QPainter, QPalette, QPen, QPixmap
 from PySide6.QtWidgets import (QApplication, QButtonGroup, QCheckBox, QDialog, QFileDialog, QFrame,
@@ -25,7 +25,7 @@ from PySide6.QtWidgets import (QApplication, QButtonGroup, QCheckBox, QDialog, Q
 
 import main
 import updater
-from icon import app_icon, draw_icon
+from icon import YELLOW, app_icon, draw_icon
 from version import __version__
 
 APP_NAME = "Zaman Makinesi"
@@ -249,6 +249,39 @@ class Logo(QWidget):
         s = self.width()
         draw_icon(p, QRectF(0, 0, s, s), turn=self.spin,
                   clock=(hour, minute, second if s >= 64 else None))
+
+
+class Clock(Logo):
+    """Sol üstteki sade analog saat. Logo gibi gerçek saati gösterir, işleme sırasında geriye döner."""
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        s = self.width()
+        c = QPointF(s / 2, s / 2)
+        r = s / 2 - s * 0.06
+        p.setPen(QPen(QColor(theme["primary"]), max(s * 0.06, 1.5)))
+        p.setBrush(QColor(theme["card"]))
+        p.drawEllipse(c, r, r)
+
+        now = datetime.now()
+        minute = now.minute + now.second / 60
+        hour = now.hour % 12 + minute / 60
+        back = self.spin * 360
+
+        def hand(angle, length, width):
+            p.save()
+            p.translate(c)
+            p.rotate(angle)
+            p.setPen(QPen(QColor(theme["text"]), width, Qt.SolidLine, Qt.RoundCap))
+            p.drawLine(QPointF(0, r * 0.12), QPointF(0, -length))
+            p.restore()
+
+        hand(hour * 30 - back / 12, r * 0.5, max(s * 0.07, 2.2))
+        hand(minute * 6 - back, r * 0.75, max(s * 0.05, 1.6))
+        p.setPen(Qt.NoPen)
+        p.setBrush(YELLOW)
+        p.drawEllipse(c, s * 0.05, s * 0.05)
 
 
 class DropOverlay(QWidget):
@@ -872,7 +905,7 @@ class MainWindow(QMainWindow):
         self.banner.hide()
 
         # Üst bilgi: canlı saat, başlık, ayarlar
-        self.clock = Logo(34)
+        self.clock = Clock(30)
         self.title = QLabel()
         self.title.setObjectName("title")
         self.subtitle = QLabel()
