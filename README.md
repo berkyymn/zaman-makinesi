@@ -16,12 +16,14 @@ Yönetici izni gerekmez. Yeni sürüm çıktığında uygulama açılışta habe
 
 1. Videoları pencereye sürükleyin ya da **Video ekle**'ye tıklayın.
 2. Her videonun yanına başlangıç tarihini yazın: `GG.AA.YYYY SS:DD:SS`.
-   Aynı videodan farklı tarihlerle birden çok çıktı almak için **+ Tarih ekle**.
+   **Enter** sizi bir sonraki boş tarihe götürür.
+   Aynı videodan farklı tarihlerle birden çok çıktı için **+ Tarih ekle**.
    **Önizle** saatin videoda nasıl duracağını gösterir.
 3. **Videoları işle**'ye tıklayın. Bitenlerin yanında ✓ çıkar, **Göster** dosyayı açar.
 
-Çıktılar varsayılan olarak `İndirilenler\Zaman Makinesi` klasörüne
-`<video adı>_<tarih>.mp4` adıyla kaydedilir. Alttaki **Değiştir** ile klasörü seçebilirsiniz.
+Çıktılar `İndirilenler\Zaman Makinesi` içinde, videoya basılan tarihin ayına göre
+klasörlenir: `2026-10 Ekim\deniz_kenari_12_10_2026_14_30_00.mp4`.
+Klasörü, aylık düzeni ve açık/koyu temayı **⚙ Ayarlar**'dan değiştirebilirsiniz.
 
 ---
 
