@@ -30,7 +30,8 @@ ayrı bir çıktı üretir. İşler sırayla, tek tek işlenir. Çıktıda ses y
 - Klasör, **videoya basılan tarihin ayı**dır (işlendiği gün değil). Ayarlardan kapatılırsa
   her şey tek klasöre gider.
 - Ad: `<video adı>_<GG_AA_YYYY_SS_DD_SS>.mp4`.
-- Aynı ad zaten varsa video tekrar işlenmez ("Zaten var").
+- Aynı ad zaten varsa işlem başlamadan bir kez sorulur: **[Yeniden oluştur] [Atla]**
+  (varsayılan Atla). Atlananlarda "✓ Zaten vardı, atlandı" yazar.
 
 ## Ekran
 
@@ -79,8 +80,9 @@ ayrı bir çıktı üretir. İşler sırayla, tek tek işlenir. Çıktıda ses y
 | Sırada | gri "Sırada" |
 | İşleniyor | mavi ilerleme çubuğu + %X |
 | Tamamlandı | yeşil "✓ Tamamlandı · 42 sn sürdü" (yumuşakça belirir) + **Göster** (dosyayı klasöründe seçili açar) |
-| Zaten var | gri "✓ Zaten var" + **Göster** |
-| Hata | kırmızı ⚠ + kısa mesaj; bir sonraki çalıştırmada tekrar denenir |
+| Zaten vardı | gri "✓ Zaten vardı, atlandı" + **Göster** |
+| Hata | kırmızı ⚠ + düz Türkçe mesaj ("Diskte yer kalmadı", "Video bulunamadı…", "Video okunamadı…"); ayrıntı hata kaydına yazılır, bir sonraki çalıştırmada tekrar denenir |
+| (uyarı) | sarı "⚠ Gelecekte bir tarih, doğru mu?" — işi engellemez |
 
 ### "Videoları işle" butonu
 - İşleme sırası dışında **her zaman tıklanabilir**; etiketi bekleyen işi sayar: "Videoları işle (3)".
@@ -92,10 +94,14 @@ ayrı bir çıktı üretir. İşler sırayla, tek tek işlenir. Çıktıda ses y
   - Geçerli iş yoksa: "Kırmızı alanları düzeltip tekrar deneyin." **[Düzelteyim]**
   - "Düzelteyim" ilk sorunlu alana götürür.
 - Her şey zaten işlendiyse: "Listedeki tüm videolar zaten işlendi" açıklaması.
+- Sonra aynı çıktı sorusu (yukarıda) ve disk kontrolü: çıktılar için gereken yer
+  (kaynak videoların toplam boyutu) diskte yoksa **[Yine de başla] [Vazgeç]** sorulur.
+- Soru pencerelerinde Enter'a basınca seçilen buton mavidir ve hep güvenli seçenektir.
 
 ### İşleme sırasında
 - Tarih alanları, ekleme/silme, temizleme, klasör değiştirme kilitlenir.
-- Başlıktaki logonun akrebi ve yelkovanı **geriye** döner.
+- Başlıktaki saatin akrebi ve yelkovanı **geriye** döner.
+- Bilgisayar uykuya geçmez (Windows: SetThreadExecutionState, macOS: caffeinate).
 - Ana buton **Durdur** olur. Durdurulunca o anki iş kesilir (yarım dosya silinir),
   kalan işler Hazır'a döner.
 
@@ -114,13 +120,15 @@ ayrı bir çıktı üretir. İşler sırayla, tek tek işlenir. Çıktıda ses y
 - Tema: **Sistem / Açık / Koyu** (Sistem seçiliyse Windows teması değişince uygulama da değişir).
 - Çıktı klasörü + "Çıktıları aylara göre klasörle"; açıkken de kapalıyken de ne olacağı
   bir cümleyle ve örnek yolla anlatılır.
-- Sürüm + **Güncellemeleri denetle**.
+- Sürüm + **Güncellemeleri denetle** + **Hata kaydını aç** (kullanıcının uygulama veri
+  klasöründe `zaman-makinesi.log`, en fazla ~3 MB; sorun olursa geliştiriciye gönderilir).
 - Tüm seçimler hatırlanır (QSettings).
 
 ### Animasyonlar
 - Açılış: simge yaylanarak büyür, ok çizilir, ibreler bir tur geri döner, yazı belirir.
-- Her yerde aynı logo kullanılır (açılış, sol üst, boş liste, sürükleme). Sol üstte ve boş
-  listede logonun ibreleri gerçek saati gösterir; büyük logoda sarı saniye ibresi yaylanarak ilerler.
+- Sol üstte gerçek saati gösteren sade, küçük bir analog saat.
+- Açılış, boş liste ve sürükleme katmanında uygulama logosu. Boş listedeki logonun ibreleri
+  gerçek saati gösterir; sarı saniye ibresi yaylanarak ilerler.
 - Video sürüklenince bütün pencereye mavi bir katman gelir; ortada ibreleri geriye dönen logo.
 - Yeni satırlar ve "✓ Tamamlandı" yumuşakça belirir; silinen tarih ve videolar solup kapanarak gider.
 

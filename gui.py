@@ -5,13 +5,18 @@ Videoya saat basma işini main.py yapar; burası sadece kullanıcıdan video ve 
 Kurallar için TASARIM.md'ye bakın.
 """
 
+import logging
+import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
 import time
 import traceback
+from contextlib import contextmanager
 from datetime import datetime
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from string import Template
 
@@ -33,6 +38,8 @@ DATE_FORMAT = "%d.%m.%Y %H:%M:%S"
 MONTHS = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran",
           "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"]
 
+log = logging.getLogger("zaman-makinesi")
+
 # Bir işin (video + tarih) durumları
 READY, QUEUED, RUNNING, DONE, EXISTS, ERROR = "ready", "queued", "running", "done", "exists", "error"
 
@@ -42,11 +49,11 @@ READY, QUEUED, RUNNING, DONE, EXISTS, ERROR = "ready", "queued", "running", "don
 
 LIGHT = dict(bg="#f8f9fa", card="#ffffff", border="#dadce0", divider="#eceff1", text="#202124", muted="#5f6368",
              primary="#1a73e8", primary_hover="#1765cc", on_primary="#ffffff", soft="#e8f0fe", soft_text="#174ea6",
-             danger="#d93025", danger_hover="#c5221f", danger_soft="#fce8e6", ok="#188038", field="#ffffff",
+             danger="#d93025", danger_hover="#c5221f", danger_soft="#fce8e6", ok="#188038", warn="#b06000", field="#ffffff",
              readonly="#f1f3f4", disabled="#e8eaed", disabled_text="#9aa0a6", thumb="#202124", track="#e8eaed")
 DARK = dict(bg="#202124", card="#292a2d", border="#5f6368", divider="#3c4043", text="#e8eaed", muted="#9aa0a6",
             primary="#8ab4f8", primary_hover="#aecbfa", on_primary="#202124", soft="#2f3b50", soft_text="#d2e3fc",
-            danger="#f28b82", danger_hover="#f6aea9", danger_soft="#4a2c2a", ok="#81c995", field="#202124",
+            danger="#f28b82", danger_hover="#f6aea9", danger_soft="#4a2c2a", ok="#81c995", warn="#fdd663", field="#202124",
             readonly="#35363a", disabled="#3c4043", disabled_text="#80868b", thumb="#000000", track="#3c4043")
 
 # O anki renkler. Kendi kendini çizen parçalar (saat, sürükleme katmanı) buradan okur.
@@ -68,6 +75,7 @@ QWidget { font-size: 13px; color: $text; }
 #fileName { font-weight: 600; }
 #error { color: $danger; }
 #ok { color: $ok; }
+#warn { color: $warn; }
 QPushButton { border: 1px solid $border; border-radius: 17px; padding: 6px 18px; min-height: 22px;
               background: $card; color: $primary; font-weight: 600; }
 QPushButton:hover { background: $soft; }
@@ -195,6 +203,68 @@ def reveal(path):
         subprocess.Popen(["open", "-R", str(path)])
     else:
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(path.parent)))
+
+
+def gb(n):
+    return f"{n / 1e9:.1f} GB".replace(".", ",")
+
+
+def free_space(folder):
+    # Klasör henüz yoksa var olan en yakın üst klasörün diskine bakılır
+    while not folder.exists() and folder != folder.parent:
+        folder = folder.parent
+    return shutil.disk_usage(folder).free
+
+
+def friendly_error(exc, src, dst):
+    # Teknik hatayı kullanıcının anlayacağı bir cümleye çevirir; ayrıntı hata kaydına yazılır
+    try:
+        if free_space(dst.parent) < 200_000_000:
+            return "Diskte yer kalmadı"
+    except OSError:
+        pass
+    if not src.exists():
+        return "Video bulunamadı (taşınmış veya silinmiş olabilir)"
+    if isinstance(exc, PermissionError):
+        return "Çıktı klasörüne yazma izni yok"
+    if "açılamadı" in str(exc) or "okunamadı" in str(exc):
+        return "Video okunamadı (dosya bozuk olabilir)"
+    return "Video kaydedilemedi"
+
+
+@contextmanager
+def keep_awake():
+    # İşlem sürerken bilgisayar uykuya geçmesin (ekran yine kapanabilir)
+    if sys.platform == "win32":
+        import ctypes
+        ES_CONTINUOUS, ES_SYSTEM_REQUIRED = 0x80000000, 0x00000001
+        ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)
+        try:
+            yield
+        finally:
+            ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS)
+    elif sys.platform == "darwin":
+        proc = subprocess.Popen(["caffeinate", "-i", "-w", str(os.getpid())])
+        try:
+            yield
+        finally:
+            proc.terminate()
+    else:
+        yield
+
+
+def log_path():
+    folder = Path(QStandardPaths.writableLocation(QStandardPaths.AppLocalDataLocation))
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder / "zaman-makinesi.log"
+
+
+def setup_log():
+    handler = RotatingFileHandler(log_path(), maxBytes=1_000_000, backupCount=2, encoding="utf-8")
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    log.addHandler(handler)
+    log.setLevel(logging.INFO)
+    log.info("Açıldı: sürüm %s, %s", __version__, sys.platform)
 
 
 def month_folder(start):
@@ -420,7 +490,8 @@ class DateRow(QWidget):
         self.state = READY
         self.progress = 0.0
         self.message = ""      # hata mesajı (işleme sırasında)
-        self.problem = ""      # tarih alanındaki sorun ("Geçersiz tarih" gibi)
+        self.problem = ""      # tarih alanındaki sorun ("Geçersiz tarih" gibi); işlenmez
+        self.warning = ""      # işlenir ama kullanıcıya sorulur ("Gelecekte bir tarih" gibi)
         self.touched = False   # kullanıcı alandan çıktı mı (eksik tarih uyarısı için)
         self.locked = False
         self.output = None
@@ -515,9 +586,11 @@ class DateRow(QWidget):
         elif self.state == DONE:
             text, style = "✓  Tamamlandı" + (f"  ·  {self.message} sürdü" if self.message else ""), "ok"
         elif self.state == EXISTS:
-            text, style = "✓  Zaten var", "muted"
+            text, style = "✓  Zaten vardı, atlandı", "muted"
         elif self.state == ERROR:
             text, style = f"⚠  {self.message}", "error"
+        elif self.warning:
+            text, style = f"⚠  {self.warning}", "warn"
         else:
             text, style = "", "muted"
         self.status.setText(text)
@@ -646,8 +719,10 @@ class VideoRow(QFrame):
 
     def validate(self):
         seen = set()
+        now = datetime.now()
         for row in self.dates:
             value = row.value()
+            row.warning = "Gelecekte bir tarih, doğru mu?" if value and value > now else ""
             if row.is_empty():
                 row.problem = ""
             elif len(row.digits()) < 14:
@@ -703,20 +778,25 @@ class Worker(QThread):
 
     def __init__(self, jobs):
         super().__init__()
-        self.jobs = jobs  # [(DateRow, kaynak, hedef, başlangıç)]
+        self.jobs = jobs  # [(DateRow, kaynak, hedef, başlangıç, üzerine_yaz)]
         self.stopped = False
 
     def stop(self):
         self.stopped = True
 
     def run(self):
-        for row, src, dst, start in self.jobs:
+        with keep_awake():
+            self._run()
+
+    def _run(self):
+        for row, src, dst, start, overwrite in self.jobs:
             if self.stopped:
                 return
-            if dst.exists():
+            if dst.exists() and not overwrite:
                 self.job_finished.emit(row, EXISTS, "")
                 continue
             self.progress.emit(row, 0.0)
+            log.info("İşleniyor: %s -> %s", src, dst)
             began = time.monotonic()
             try:
                 main.process(src, dst, start,
@@ -724,12 +804,15 @@ class Worker(QThread):
                              should_stop=lambda: self.stopped)
                 secs = round(time.monotonic() - began)
                 took = f"{secs // 60} dk {secs % 60} sn" if secs >= 60 else f"{max(secs, 1)} sn"
+                log.info("Bitti (%s): %s", took, dst)
                 self.job_finished.emit(row, DONE, took)
             except main.Cancelled:
+                log.info("Durduruldu: %s", src)
                 self.job_finished.emit(row, READY, "")
                 return
             except Exception as e:
-                self.job_finished.emit(row, ERROR, str(e) or type(e).__name__)
+                log.exception("Hata: %s", src)
+                self.job_finished.emit(row, ERROR, friendly_error(e, src, dst))
 
 
 # =============================================================================
@@ -745,10 +828,11 @@ def ask(parent, title, text, details, yes, no, default_yes=True):
     box.setInformativeText(details)
     yes_btn = box.addButton(yes, QMessageBox.AcceptRole) if yes else None
     no_btn = box.addButton(no, QMessageBox.RejectRole)
-    if yes_btn:
-        yes_btn.setObjectName("primary")
-        repolish(yes_btn, "s", True)
-    box.setDefaultButton(yes_btn if yes_btn and default_yes else no_btn)
+    # Varsayılan (Enter'a basınca seçilen) buton mavi olur; tehlikeli seçenek varsayılan yapılmaz
+    default = yes_btn if yes_btn and default_yes else no_btn
+    default.setObjectName("primary")
+    repolish(default, "s", True)
+    box.setDefaultButton(default)
     box.exec()
     return yes_btn is not None and box.clickedButton() is yes_btn
 
@@ -801,9 +885,13 @@ class SettingsDialog(QDialog):
         self.update_status.setObjectName("small")
         self.update_btn = QPushButton("Güncellemeleri denetle")
         self.update_btn.clicked.connect(self._check_updates)
+        log_btn = QPushButton("Hata kaydını aç")
+        log_btn.setToolTip("Bir sorun olursa bu dosyayı geliştiriciye gönderebilirsiniz")
+        log_btn.clicked.connect(self._open_log)
         about_row = QHBoxLayout()
-        about_row.addWidget(about, 1)
         about_row.addWidget(self.update_btn)
+        about_row.addWidget(log_btn)
+        about_row.addStretch()
 
         close = QPushButton("Kapat")
         close.setObjectName("primary")
@@ -825,6 +913,7 @@ class SettingsDialog(QDialog):
         layout.addWidget(self.example)
         layout.addSpacing(10)
         layout.addWidget(section("Hakkında"))
+        layout.addWidget(about)
         layout.addLayout(about_row)
         layout.addWidget(self.update_status)
         layout.addSpacing(8)
@@ -850,6 +939,11 @@ class SettingsDialog(QDialog):
     def _set_monthly(self, on):
         self.main.set_monthly(on)
         self._refresh()
+
+    def _open_log(self):
+        path = log_path()
+        path.touch()
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
 
     def _check_updates(self):
         self.update_btn.setEnabled(False)
@@ -1265,9 +1359,38 @@ class MainWindow(QMainWindow):
             ask(self, "Hepsi tamam", "Listedeki tüm videolar zaten işlendi.",
                 "Yeni video ekleyebilir ya da bir videoya “+ Tarih ekle” ile yeni tarih girebilirsiniz.", None, "Tamam")
             return
-        self.start_jobs()
 
-    def start_jobs(self):
+        rows = [(v, d) for v in self.videos for d in v.dates if d.is_pending()]
+        existing = [(v, d) for v, d in rows if output_path(self.out_dir, v.path, d.value(), self.monthly).exists()]
+        overwrite = False
+        if existing:
+            lines = [f"•  {v.path.name}: {d.edit.text()}" for v, d in existing[:8]]
+            if len(existing) > 8:
+                lines.append(f"…ve {len(existing) - 8} tane daha")
+            overwrite = ask(self, "Çıktı zaten var", f"{len(existing)} tarihin çıktısı zaten var",
+                            "<br>".join(lines) + "<br><br>Bunlar daha önce işlenmiş. Atlayabilir ya da yeniden "
+                            "oluşturabilirsiniz (yeni dosya eskisinin yerine geçer).",
+                            "Yeniden oluştur", "Atla", default_yes=False)
+        to_make = rows if overwrite else [r for r in rows if r not in existing]
+        if not self.enough_space([v.path for v, _ in to_make]):
+            return
+        self.start_jobs(overwrite)
+
+    def enough_space(self, sources):
+        # Çıktı, kaynak videodan büyük olmaz varsayımıyla kabaca hesaplanır
+        need = sum(src.stat().st_size for src in sources if src.exists())
+        try:
+            free = free_space(self.out_dir)
+        except OSError:
+            return True
+        if free >= need:
+            return True
+        return ask(self, "Disk dolmak üzere", "Diskte yeterli boş yer olmayabilir",
+                   f"Çıktılar için yaklaşık {gb(need)} gerekebilir, diskte {gb(free)} boş.<br><br>"
+                   "Yer açıp tekrar deneyebilir ya da Ayarlar'dan çıktı klasörünü başka bir diske alabilirsiniz.",
+                   "Yine de başla", "Vazgeç", default_yes=False)
+
+    def start_jobs(self, overwrite=False):
         jobs, used = [], set()
         for video in self.videos:
             for row in video.dates:
@@ -1280,7 +1403,7 @@ class MainWindow(QMainWindow):
                     continue
                 used.add(dst)
                 row.set_state(QUEUED, output=dst)
-                jobs.append((row, video.path, dst, start))
+                jobs.append((row, video.path, dst, start, overwrite))
         if not jobs:
             self.refresh()
             return
@@ -1419,6 +1542,7 @@ class Splash(QWidget):
 
 def show_error(exc_type, exc, tb):
     text = "".join(traceback.format_exception(exc_type, exc, tb))
+    log.error("Beklenmeyen hata:\n%s", text)
     box = QMessageBox(QMessageBox.Critical, APP_NAME, "Beklenmeyen bir hata oluştu.")
     box.setDetailedText(text)
     box.exec()
@@ -1456,6 +1580,7 @@ def run():
     app.setWindowIcon(app_icon())
     app.setStyle("Fusion")
     sys.excepthook = show_error
+    setup_log()
 
     window = MainWindow()
     apply_theme(window.theme_choice)
