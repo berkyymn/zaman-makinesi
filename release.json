@@ -1,4 +1,4 @@
 {
-  "min_supported": "1.0.4",
-  "notes": "Zaman Adam artık işlem başlarken ve bitince birkaç saniyeliğine sağ altta beliriyor; biten videoların yanında başparmağını kaldırıyor."
+  "min_supported": "1.0.6",
+  "notes": "Yeni sürüm çıkınca Zaman Adam size haber veriyor ve Ayarlar butonunda kırmızı nokta beliriyor. Ayarlar güncellemeleri kendisi de denetliyor. 'Listeyi temizle' artık 'Hepsini temizle'."
 }

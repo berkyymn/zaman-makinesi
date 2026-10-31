@@ -42,6 +42,10 @@ MONTHS = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran",
 
 log = logging.getLogger("zaman-makinesi")
 
+# Ayarlar açıldığında, son kontrolün üzerinden bu kadar zaman geçtiyse güncelleme kendiliğinden denetlenir.
+# Uygulama zaten her açılışta denetliyor; bu, günlerce açık kalan pencereler için.
+UPDATE_CHECK_EVERY = 12 * 3600
+
 # Bir işin (video + tarih) durumları
 READY, QUEUED, RUNNING, DONE, EXISTS, ERROR = "ready", "queued", "running", "done", "exists", "error"
 
@@ -1188,12 +1192,11 @@ class SettingsDialog(QDialog):
         self.update_status.hide()
         info = window.update_info
         if info and info.newer:
-            self.update_btn.setText(f"Şimdi güncelle ({info.latest})")
-            self.update_btn.setObjectName("primary")
-            self.update_btn.clicked.disconnect()
-            self.update_btn.clicked.connect(window.open_update)
-            self.update_status.setText(f"🎉  Yeni sürüm hazır: {info.latest}. Siz {__version__} kullanıyorsunuz.")
-            self.update_status.show()
+            self._show_update(info)
+        elif time.time() - window.settings.value("last_update_check", 0, type=float) > UPDATE_CHECK_EVERY:
+            QTimer.singleShot(300, self, self._check_updates)
+        else:
+            self._show_last_check()
 
         close = QPushButton("Kapat")
         close.setObjectName("primary")
@@ -1249,12 +1252,34 @@ class SettingsDialog(QDialog):
         self.update_btn.setEnabled(True)
         if info is None:
             self.update_status.setText("Kontrol edilemedi. İnternet bağlantınızı kontrol edin.")
-        elif not info.newer:
-            self.update_status.setText("✓  En güncel sürümü kullanıyorsunuz.")
+            return
+        self.main.update_checked()
+        if info.newer:
+            self.main.set_update_available(info)
+            self._show_update(info)
         else:
-            self.update_status.setText(f"Yeni sürüm var: {info.latest}")
-            self.main.update_info = info
-            self.main.open_update()
+            self.update_status.setText(f"✓  En güncel sürümü kullanıyorsunuz. (Son kontrol: {self._last_check_text()})")
+
+    def _last_check_text(self):
+        last = self.main.settings.value("last_update_check", 0, type=float)
+        if not last:
+            return "hiç"
+        when = datetime.fromtimestamp(last)
+        day = "bugün" if when.date() == datetime.now().date() else f"{when:%d.%m.%Y}"
+        return f"{day} {when:%H:%M}"
+
+    def _show_last_check(self):
+        self.update_status.setText(f"Son kontrol: {self._last_check_text()}")
+        self.update_status.show()
+
+    def _show_update(self, info):
+        self.update_btn.setText(f"Şimdi güncelle ({info.latest})")
+        self.update_btn.setObjectName("primary")
+        repolish(self.update_btn, "s", True)
+        self.update_btn.clicked.disconnect()
+        self.update_btn.clicked.connect(self.main.open_update)
+        self.update_status.setText(f"🎉  Yeni sürüm hazır: {info.latest}. Siz {__version__} kullanıyorsunuz.")
+        self.update_status.show()
 
 
 class MainWindow(QMainWindow):
@@ -1305,7 +1330,7 @@ class MainWindow(QMainWindow):
         self.remember.setToolTip("İşaretliyken eklenen her videonun tarih alanı, en son yazdığınız tarihle dolu gelir.")
         self.clear_done_btn = QPushButton("Bitenleri temizle")
         self.clear_done_btn.clicked.connect(self.clear_finished)
-        self.clear_btn = QPushButton("Listeyi temizle")
+        self.clear_btn = QPushButton("Hepsini temizle")
         self.clear_btn.clicked.connect(self.clear)
         toolbar = QHBoxLayout()
         toolbar.setContentsMargins(16, 8, 16, 12)
@@ -1522,7 +1547,7 @@ class MainWindow(QMainWindow):
         self.refresh()
 
     def clear(self):
-        if not ask(self, "Listeyi temizle", "Tüm videolar listeden kaldırılsın mı?",
+        if not ask(self, "Hepsini temizle", "Tüm videolar listeden kaldırılsın mı?",
                    "Girdiğiniz tarihler de silinir. Videolarınıza ve üretilen çıktılara bir şey olmaz.",
                    "Temizle", "Vazgeç", default_yes=False):
             return
@@ -1746,11 +1771,18 @@ class MainWindow(QMainWindow):
 
     # --- Güncelleme -------------------------------------------------------------
 
-    def announce_update(self, info):
-        # Açılışta bir kez: Zaman Adam haber verir, Ayarlar butonunda kırmızı nokta kalır
+    def update_checked(self):
+        self.settings.setValue("last_update_check", time.time())
+
+    def set_update_available(self, info):
+        # Ayarlar butonunda kırmızı nokta kalır
         self.update_info = info
         self.badge.move(self.settings_btn.width() - 17, 3)
         self.badge.show()
+
+    def announce_update(self, info):
+        # Açılışta bir kez: Zaman Adam haber verir
+        self.set_update_available(info)
         self.toast.say(f"Yeni sürüm hazır ({info.latest})! Güncellemek için bana tıklayın "
                        "ya da Ayarlar'a bakın.", "wave", 7000, on_click=self.open_update)
 
@@ -1888,6 +1920,8 @@ def run():
     def ready(part, info=None):
         if part == "check":
             result["info"] = info
+            if info:
+                window.update_checked()
         pending.discard(part)
         if pending:
             return

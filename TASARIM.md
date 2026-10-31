@@ -38,7 +38,7 @@ ayrı bir çıktı üretir. İşler sırayla, tek tek işlenir. Çıktıda ses y
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
 │ (saat) 3 video · 5 çıktı  2 / 5 tamamlandı                    [⚙ Ayarlar] │
-│ [+ Video ekle] ☐ Yeni videolara son girilen tarihi yaz  [Bitenleri temizle] [Listeyi temizle] │
+│ [+ Video ekle] ☐ Yeni videolara son girilen tarihi yaz  [Bitenleri temizle] [Hepsini temizle] │
 ├──────────────────────────────────────────────────────────────────────────┤
 │ [kare] toplanti.mp4   [12.10.2026 14:30:00]  (okey veren adam) Tamamlandı · 42 sn sürdü  Göster │
 │        02:14 · 1080p  [13.10.2026 09:00:00]  (koşan adam) ███░░ %42 · 12 sn     │
@@ -117,7 +117,7 @@ ayrı bir çıktı üretir. İşler sırayla, tek tek işlenir. Çıktıda ses y
 - Tamamlanan satırlar kilitlenir; tekrar işlenmez.
 - **Bitenleri temizle** (sadece biten varken görünür): tamamlananları listeden kaldırır,
   hatalı ve bekleyenler kalır.
-- **Listeyi temizle** onay sorup her şeyi sıfırlar; çıktı dosyalarına dokunmaz.
+- **Hepsini temizle** onay sorup her şeyi sıfırlar; çıktı dosyalarına dokunmaz.
 
 ### Kapatırken
 - İşlem sürüyorsa: "Durdurup çıkılsın mı?" **[Durdur ve çık] [Devam et]**
@@ -151,7 +151,9 @@ ayrı bir çıktı üretir. İşler sırayla, tek tek işlenir. Çıktıda ses y
   ("Yeni sürüm hazır! Güncellemek için bana tıklayın"; tıklayınca güncelleme penceresi açılır).
   **⚙ Ayarlar** butonunda kırmızı nokta kalır; Ayarlar'ın Yardım kartında "Şimdi güncelle" görünür.
 - Ulaşılamazsa → sessizce devam (internet yokken de çalışsın).
-- Ayarlar'daki **Güncellemeleri denetle** aynı kontrolü elle yapar.
+- Ayarlar'daki **Güncellemeleri denetle** aynı kontrolü elle yapar; altında "Son kontrol: bugün 14:32" yazar.
+- Ayarlar açıldığında son kontrolün üzerinden **12 saat** geçtiyse kendiliğinden denetler
+  (açılışta zaten her seferinde denetlendiği için bu, günlerce açık kalan pencereler içindir).
 - Güncelle → kurulum dosyası indirilir (buton "İndiriliyor… %42" olur ve pasifleşir, "Lütfen
   bekleyin" yazar), sha256 doğrulanır, kurulum sessiz modda başlatılır, uygulama kapanır,
   kurulum bitince `--updated` ile yeniden açılır ve **"Güncelleme tamamlandı!"** penceresi
