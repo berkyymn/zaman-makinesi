@@ -105,6 +105,7 @@ class UpdateDialog(QDialog):
         notes.setVisible(bool(info.notes))
         self.status = QLabel()
         self.status.setObjectName("muted")
+        self.status.setWordWrap(True)
         self.bar = QProgressBar()
         self.bar.setTextVisible(False)
         self.bar.setFixedHeight(6)
@@ -136,8 +137,10 @@ class UpdateDialog(QDialog):
             self.accept()
             return
         self.update_btn.setEnabled(False)
+        self.update_btn.setText("İndiriliyor…")
+        self.later.setText("Vazgeç")
         self.bar.show()
-        self.status.setText("İndiriliyor…")
+        self.status.setText("Lütfen bekleyin, bu bir iki dakika sürebilir. Pencereyi kapatmayın.")
         path = Path(tempfile.gettempdir()) / f"ZamanMakinesi-Setup-{self.info.latest}.exe"
         self.file = open(path, "wb")
         self.hash = hashlib.sha256()
@@ -157,6 +160,7 @@ class UpdateDialog(QDialog):
         if total > 0:
             self.bar.setMaximum(total)
             self.bar.setValue(received)
+            self.update_btn.setText(f"İndiriliyor… %{received * 100 // total}")
 
     def _done(self):
         self._read()
@@ -167,7 +171,9 @@ class UpdateDialog(QDialog):
         elif self.hash.hexdigest() != self.info.sha256:
             self._fail("İndirilen dosya bozuk görünüyor. Tekrar deneyin.")
         else:
-            self.status.setText("Kuruluyor… Uygulama birazdan yeniden açılacak.")
+            self.update_btn.setText("Kuruluyor…")
+            self.later.setEnabled(False)
+            self.status.setText("Kuruluyor… Uygulama birazdan kendiliğinden yeniden açılacak.")
             # Kurulum, uygulama kapandıktan sonra eski sürümün üzerine kurar ve yeniden başlatır.
             subprocess.Popen([str(path), "/SILENT", "/SUPPRESSMSGBOXES", "/NORESTART"])
             QApplication.quit()
@@ -178,6 +184,8 @@ class UpdateDialog(QDialog):
         self.status.setText(message)
         self.bar.hide()
         self.update_btn.setEnabled(True)
+        self.update_btn.setText("Tekrar dene")
+        self.later.setText("Çık" if self.info.forced else "Sonra")
 
     def reject(self):
         if self.reply and self.reply.isRunning():

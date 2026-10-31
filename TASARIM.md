@@ -37,16 +37,17 @@ ayrı bir çıktı üretir. İşler sırayla, tek tek işlenir. Çıktıda ses y
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
-│ (logo) 3 video · 5 çıktı  2 / 5 tamamlandı                    [⚙ Ayarlar] │
+│ (saat) 3 video · 5 çıktı  2 / 5 tamamlandı                    [⚙ Ayarlar] │
 │ [+ Video ekle] ☐ Yeni videolara son girilen tarihi yaz  [Bitenleri temizle] [Listeyi temizle] │
 ├──────────────────────────────────────────────────────────────────────────┤
-│ [kare] toplanti.mp4   [12.10.2026 14:30:00]  ✓ Tamamlandı · 42 sn sürdü  Göster │
-│        02:14 · 1080p  [13.10.2026 09:00:00]  ███████░░ %42                  │
-│        Kaldır         + Tarih ekle   − Son tarihi sil                       │
+│ (Zaman Adam koşuyor) ( Kolları sıvadım, 5 video sırada! )  2 / 5 video tamamlandı │
+├──────────────────────────────────────────────────────────────────────────┤
+│ [kare] toplanti.mp4   [12.10.2026 14:30:00]  ✓ Tamamlandı · 42 sn sürdü     Göster │
+│        02:14 · 1080p  [13.10.2026 09:00:00]  (koşan adam) ███░░ %42 · 12 sn     │
+│        Kaldır         + Tarih ekle   ✕ İptal                                │
 │ [kare] sahne.mov      [31.02.2026 25:00:00]  Geçersiz tarih                 │
 ├──────────────────────────────────────────────────────────────────────────┤
-│ Çıktı klasörü                                                            │
-│ C:\Users\ali\Downloads\Zaman Makinesi  Değiştir  Klasörü aç  [▶ Videoları işle (3)] │
+│ [📁 Çıktı klasörünü aç]                              [▶ Videoları işle (3)] │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -69,8 +70,9 @@ ayrı bir çıktı üretir. İşler sırayla, tek tek işlenir. Çıktıda ses y
   alanına geçer. Butonlar Tab ile gezilmez.
 - Sorunlu alan kırmızı çerçeve + sebep: "Geçersiz tarih", "Tarih eksik" (alandan
   çıkınca), "Bu tarih zaten ekli".
-- **+ Tarih ekle** yeni boş alan açar. Yanındaki **− Son tarihi sil** en alttaki
-  (bitmemiş) tarihi siler; video tek tarihliyse görünmez. Videonun tamamı **Kaldır** ile silinir.
+- **+ Tarih ekle** yeni boş alan açar. Yanındaki kırmızı **✕ İptal** en son eklenen tarihi
+  iptal eder; sadece en alttaki tarih bitmemişse ve videoda birden çok tarih varsa görünür,
+  işleme sırasında gizlenir. Videonun tamamı **Kaldır** ile silinir.
 - Arayüzde önizleme yoktur; gerekirse `uv run onizleme.py` kullanılır.
 
 ### İş durumları (sağ sütun)
@@ -79,7 +81,7 @@ ayrı bir çıktı üretir. İşler sırayla, tek tek işlenir. Çıktıda ses y
 | Hazır | boş |
 | Sırada | gri "Sırada" |
 | İşleniyor | koşan Zaman Adam + mavi ilerleme çubuğu + "%X · 12 sn" (süre canlı sayılır) |
-| Tamamlandı | yeşil "✓ Tamamlandı · 42 sn sürdü" (yumuşakça belirir) + **Göster** (dosyayı klasöründe seçili açar) |
+| Tamamlandı | Zaman Adam ~2,5 sn sevinçle zıplayıp başparmağını kaldırır; sonra yeşil "✓ Tamamlandı · 42 sn sürdü" + **Göster** (en sağda) kalır |
 | Zaten vardı | gri "✓ Zaten vardı, atlandı" + **Göster** |
 | Hata | kırmızı ⚠ + düz Türkçe mesaj ("Diskte yer kalmadı", "Video bulunamadı…", "Video okunamadı…"); ayrıntı hata kaydına yazılır, bir sonraki çalıştırmada tekrar denenir |
 | (uyarı) | sarı "⚠ Gelecekte bir tarih, doğru mu?" — işi engellemez |
@@ -105,7 +107,13 @@ ayrı bir çıktı üretir. İşler sırayla, tek tek işlenir. Çıktıda ses y
 - Ana buton **Durdur** olur. Durdurulunca o anki iş kesilir (yarım dosya silinir),
   kalan işler Hazır'a döner.
 
+- Listenin üstünde **çalışma şeridi**: koşan Zaman Adam, konuşma balonu ve "3 / 12 video tamamlandı".
+  Balon iş sayısına göre konuşur (1: "Tek video mu? Çocuk oyuncağı!", 30+: "Derin bir nefes…");
+  yarıda ve son videoda mesaj değişir.
+
 ### İş bitince
+- Şeritte Zaman Adam başparmağını kaldırır: "Hepsi hazır! 🎉" (hata/durdurma varsa ne olduğunu
+  söyler); şerit 7 sn sonra kapanır.
 - Üstte özet: "5 / 6 tamamlandı · 1 hata". Pencere arkadaysa görev çubuğunda yanıp söner.
 - Tamamlanan satırlar kilitlenir; tekrar işlenmez.
 - **Bitenleri temizle** (sadece biten varken görünür): tamamlananları listeden kaldırır,
@@ -119,7 +127,7 @@ ayrı bir çıktı üretir. İşler sırayla, tek tek işlenir. Çıktıda ses y
 ### Ayarlar (⚙)
 - Üstte el sallayan Zaman Adam; ayarlar üç kartta: Görünüm, Çıktılar, Yardım.
 - Tema: **Sistem / Açık / Koyu** (bitişik üç seçenek) (Sistem seçiliyse Windows teması değişince uygulama da değişir).
-- Çıktı klasörü + "Çıktıları aylara göre klasörle"; açıkken de kapalıyken de ne olacağı
+- Çıktı klasörü (**Değiştir**, **Klasörü aç**) + "Aylara göre klasörle"; açıkken de kapalıyken de ne olacağı
   bir cümleyle ve örnek yolla anlatılır.
 - Sürüm + **Güncellemeleri denetle** + **Hata kaydını aç** (kullanıcının uygulama veri
   klasöründe `zaman-makinesi.log`, en fazla ~3 MB; sorun olursa geliştiriciye gönderilir).
@@ -143,8 +151,10 @@ ayrı bir çıktı üretir. İşler sırayla, tek tek işlenir. Çıktıda ses y
 - Sürüm `< latest` → üstte kapatılabilir şerit: "Yeni sürüm var · Güncelle".
 - Ulaşılamazsa → sessizce devam (internet yokken de çalışsın).
 - Ayarlar'daki **Güncellemeleri denetle** aynı kontrolü elle yapar.
-- Güncelle → kurulum dosyası indirilir (ilerleme gösterilir), sha256 doğrulanır,
-  kurulum sessiz modda başlatılır, uygulama kapanır, kurulum bitince yeniden açılır.
+- Güncelle → kurulum dosyası indirilir (buton "İndiriliyor… %42" olur ve pasifleşir, "Lütfen
+  bekleyin" yazar), sha256 doğrulanır, kurulum sessiz modda başlatılır, uygulama kapanır,
+  kurulum bitince `--updated` ile yeniden açılır ve **"Güncelleme tamamlandı!"** penceresi
+  (Zaman Adam + sürüm notu) gösterilir.
 
 ## Dağıtım
 

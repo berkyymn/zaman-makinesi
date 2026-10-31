@@ -94,6 +94,13 @@ QPushButton#primary { background: $primary; color: $on_primary; border: none; pa
 QPushButton#primary:hover { background: $primary_hover; }
 QPushButton#danger { background: $danger; color: $on_primary; border: none; padding: 7px 22px; }
 QPushButton#danger:hover { background: $danger_hover; }
+QPushButton#primary:disabled, QPushButton#danger:disabled { background: $disabled; color: $disabled_text; }
+QToolButton#cancel { color: $danger; }
+QToolButton#cancel:hover { background: $danger_soft; }
+#workBanner { background: $soft; border-bottom: 1px solid $divider; }
+#bubble { background: $card; color: $text; border: 1px solid $border; border-radius: 14px;
+          padding: 10px 14px; font-size: 14px; }
+#workCount { color: $soft_text; font-weight: 600; }
 QLineEdit { border: 1px solid $border; border-radius: 8px; padding: 6px 8px; background: $field; color: $text;
             font-family: $mono; font-size: 14px; }
 QLineEdit:focus { border: 2px solid $primary; padding: 5px 7px; }
@@ -369,7 +376,14 @@ class Clock(Logo):
 
 
 class TimeBuddy(QWidget):
-    """Zaman Adam: uygulama simgesinin kollu bacaklı hali. "run" modunda koşar, "wave" modunda el sallar."""
+    """Zaman Adam: uygulama simgesinin kollu bacaklı hali.
+    "run" koşar, "wave" el sallar, "ok" sevinçle zıplayıp başparmağını kaldırır."""
+
+    def set_mode(self, mode):
+        self.mode = mode
+        self.phase = 0.0
+        self.update()
+
 
     def __init__(self, size, mode="run"):
         super().__init__()
@@ -391,8 +405,14 @@ class TimeBuddy(QWidget):
         p.scale(self.width() / 100, self.height() / 100)  # 100x100'lük bir kutuda çizilir
         t = self.phase
         run = self.mode == "run"
+        ok = self.mode == "ok"
         swing = math.sin(t * 12) if run else 0.0
-        p.translate(0, -4 * abs(swing) if run else 1.5 * math.sin(t * 2))
+        if run:
+            p.translate(0, -4 * abs(swing))
+        elif ok:
+            p.translate(0, -8 * abs(math.sin(t * 9)) if t < 0.7 else 0)  # iki kez sevinçle zıplar
+        else:
+            p.translate(0, 1.5 * math.sin(t * 2))
         ink = QColor(theme["text"])
         limb = QPen(ink, 5, Qt.SolidLine, Qt.RoundCap)
 
@@ -419,13 +439,18 @@ class TimeBuddy(QWidget):
         # Kollar: koşarken bacakların tersine sallanır, beklerken biri el sallar
         if run:
             arms = ((20, 44, -25 - 40 * swing), (80, 44, 25 + 40 * swing))
+        elif ok:
+            arms = ((20, 44, -30), (80, 40, 160))
         else:
             arms = ((20, 44, -30), (80, 40, 145 + 25 * math.sin(t * 7)))
         for x, y, angle in arms:
             hand = limb_end(x, y, angle, 15)
             p.setPen(Qt.NoPen)
             p.setBrush(ink)
-            p.drawEllipse(hand, 3.5, 3.5)
+            p.drawEllipse(hand, 4 if ok and x > 50 else 3.5, 4 if ok and x > 50 else 3.5)
+        if ok:  # başparmak yukarı
+            p.setPen(QPen(ink, 4, Qt.SolidLine, Qt.RoundCap))
+            p.drawLine(hand + QPointF(-1, -2), hand + QPointF(-1, -9))
 
         # Gövde: uygulama simgesinin kendisi (mavi kare, kadran, geri dönen ok)
         body = QRectF(18, 8, 64, 64)
@@ -433,14 +458,118 @@ class TimeBuddy(QWidget):
 
         # Kadranın üstüne yüz: arada bir göz kırpar
         cx, cy = body.center().x(), body.center().y()
-        eye = 0.6 if t % 3.5 < 0.12 else 3.4
-        p.setPen(Qt.NoPen)
-        p.setBrush(QColor("#202124"))
-        p.drawEllipse(QPointF(cx - 6, cy - 3), 2.6, eye)
-        p.drawEllipse(QPointF(cx + 6, cy - 3), 2.6, eye)
+        if ok:  # mutlu gözler: ^ ^
+            p.setPen(QPen(QColor("#202124"), 2.5, Qt.SolidLine, Qt.RoundCap))
+            p.setBrush(Qt.NoBrush)
+            p.drawArc(QRectF(cx - 9.5, cy - 6, 7, 6), 20 * 16, 140 * 16)
+            p.drawArc(QRectF(cx + 2.5, cy - 6, 7, 6), 20 * 16, 140 * 16)
+        else:
+            eye = 0.6 if t % 3.5 < 0.12 else 3.4
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor("#202124"))
+            p.drawEllipse(QPointF(cx - 6, cy - 3), 2.6, eye)
+            p.drawEllipse(QPointF(cx + 6, cy - 3), 2.6, eye)
         p.setPen(QPen(QColor("#202124"), 2.5, Qt.SolidLine, Qt.RoundCap))
         p.setBrush(Qt.NoBrush)
         p.drawArc(QRectF(cx - 7, cy - 2, 14, 10), 200 * 16, 140 * 16)
+
+
+class WorkBanner(QFrame):
+    """İşlem sürerken listenin üstünde koşan Zaman Adam ve iş sayısına göre konuşması."""
+
+    def __init__(self):
+        super().__init__()
+        self.setObjectName("workBanner")
+        self.buddy = TimeBuddy(64)
+        self.bubble = QLabel()
+        self.bubble.setObjectName("bubble")
+        self.count = QLabel()
+        self.count.setObjectName("workCount")
+        text = QVBoxLayout()
+        text.setSpacing(6)
+        text.addStretch()
+        text.addWidget(self.bubble, 0, Qt.AlignLeft)
+        text.addWidget(self.count)
+        text.addStretch()
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(20, 10, 20, 10)
+        layout.setSpacing(14)
+        layout.addWidget(self.buddy)
+        layout.addLayout(text, 1)
+        self.hide_timer = QTimer(self, singleShot=True, interval=7000)
+        self.hide_timer.timeout.connect(self.hide)
+        self.hide()
+
+    @staticmethod
+    def pep_talk(n):
+        if n == 1:
+            return "Tek video mu? Çocuk oyuncağı! 😎"
+        if n <= 3:
+            return "Hemen hallediyorum, gözünüzü kırpmayın!"
+        if n <= 10:
+            return f"Kolları sıvadım, {n} video sırada!"
+        if n <= 30:
+            return f"Vay, {n} video! Biraz sürecek, bir çay koyun ☕"
+        return f"{n} video mu?! Derin bir nefes… Başlıyorum! 💪"
+
+    def start(self, total):
+        self.hide_timer.stop()
+        self.buddy.set_mode("run")
+        self.bubble.setText(self.pep_talk(total))
+        self.update_count(0, total)
+        self.show()
+        fade_in(self)
+
+    def update_count(self, done, total):
+        self.count.setText(f"{done} / {total} video tamamlandı")
+        if total >= 4 and done == total // 2:
+            self.bubble.setText("Yarısı bitti, devam ediyorum! 🏃")
+        elif total >= 2 and done == total - 1:
+            self.bubble.setText("Son video, neredeyse bitti!")
+
+    def finish(self, done, errors, stopped):
+        if stopped:
+            self.buddy.set_mode("wave")
+            self.bubble.setText("Durdurdunuz. Kalanlar sırada bekliyor.")
+        elif errors:
+            self.buddy.set_mode("wave")
+            self.bubble.setText(f"{done} video hazır, {errors} tanesinde sorun çıktı. Kırmızı satırlara bakın.")
+        else:
+            self.buddy.set_mode("ok")
+            self.bubble.setText("Hepsi hazır! 🎉" if done != 1 else "Hazır! 🎉")
+        self.hide_timer.start()
+
+
+class WhatsNewDialog(QDialog):
+    """Güncellemeden sonraki ilk açılışta gösterilir."""
+
+    def __init__(self, parent, notes):
+        super().__init__(parent)
+        self.setWindowTitle("Güncelleme tamamlandı")
+        self.setFixedWidth(420)
+        buddy = TimeBuddy(96, mode="ok")
+        title = QLabel("Güncelleme tamamlandı!")
+        title.setObjectName("dialogTitle")
+        title.setAlignment(Qt.AlignCenter)
+        body = QLabel(f"Zaman Makinesi artık {__version__} sürümünde.")
+        body.setAlignment(Qt.AlignCenter)
+        what = QLabel(notes)
+        what.setObjectName("info")
+        what.setWordWrap(True)
+        what.setVisible(bool(notes))
+        ok = QPushButton("Harika!")
+        ok.setObjectName("primary")
+        ok.setDefault(True)
+        ok.clicked.connect(self.accept)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 20, 24, 20)
+        layout.setSpacing(10)
+        layout.addWidget(buddy, 0, Qt.AlignCenter)
+        layout.addWidget(title)
+        layout.addWidget(body)
+        layout.addWidget(what)
+        layout.addSpacing(6)
+        layout.addWidget(ok, 0, Qt.AlignCenter)
 
 
 class DropOverlay(QWidget):
@@ -591,6 +720,7 @@ class DateRow(QWidget):
         self.edit.returnPressed.connect(lambda: self.next_requested.emit(self))
 
         self.buddy = TimeBuddy(38)
+        self.cheering = False
         self.started = 0.0
         self.ticker = QTimer(self, interval=500)  # işlenirken geçen süreyi günceller
         self.ticker.timeout.connect(self.render)
@@ -661,6 +791,16 @@ class DateRow(QWidget):
         if appeared:
             fade_in(self.status, 400)
             fade_in(self.show_btn, 400)
+        if appeared and state == DONE:
+            self.cheering = True
+            self.buddy.set_mode("ok")
+            self.render()
+            QTimer.singleShot(2600, self, self._stop_cheering)
+
+    def _stop_cheering(self):
+        self.cheering = False
+        self.buddy.set_mode("run")
+        self.render()
 
     def set_locked(self, locked):
         self.locked = locked
@@ -673,7 +813,7 @@ class DateRow(QWidget):
         repolish(self.edit, "invalid", bool(visible_problem))
 
         self.bar.setVisible(self.state == RUNNING)
-        self.buddy.setVisible(self.state == RUNNING)
+        self.buddy.setVisible(self.state == RUNNING or self.cheering)
         self.bar.setValue(int(self.progress * 1000))
         self.show_btn.setVisible(finished and self.output is not None)
 
@@ -753,8 +893,9 @@ class VideoRow(QFrame):
         self.add_btn = QToolButton(text="+ Tarih ekle")
         self.add_btn.setFocusPolicy(Qt.ClickFocus)
         self.add_btn.clicked.connect(lambda: self.add_date(focus=True))
-        self.del_btn = QToolButton(text="−  Son tarihi sil")
-        self.del_btn.setToolTip("En alttaki tarihi siler")
+        self.del_btn = QToolButton(text="✕  İptal")
+        self.del_btn.setObjectName("cancel")
+        self.del_btn.setToolTip("En son eklenen tarihi iptal eder")
         self.del_btn.setFocusPolicy(Qt.ClickFocus)
         self.del_btn.clicked.connect(self.remove_last_date)
         date_buttons = QHBoxLayout()
@@ -794,9 +935,12 @@ class VideoRow(QFrame):
         self.validate()
 
     def removable(self):
-        # Silinebilecek en alttaki tarih (biten tarihler silinmez; tek tarih kalırsa da silinmez)
-        open_rows = [d for d in self.dates if d.state not in (DONE, EXISTS)]
-        return open_rows[-1] if len(self.dates) > 1 and open_rows else None
+        # İptal edilebilecek tarih: en alttaki, henüz bitmemiş tarih (tek tarih kalırsa iptal yok)
+        last = self.dates[-1] if len(self.dates) > 1 else None
+        return last if last and last.state not in (DONE, EXISTS) else None
+
+    def update_buttons(self):
+        self.del_btn.setVisible(self.removable() is not None and not self.locked)
 
     def remove_last_date(self):
         row = self.removable()
@@ -836,7 +980,7 @@ class VideoRow(QFrame):
                 row.problem = ""
                 seen.add(value)
             row.render()
-        self.del_btn.setVisible(self.removable() is not None)
+        self.update_buttons()
         self.changed.emit()
 
     def problems(self):
@@ -860,7 +1004,7 @@ class VideoRow(QFrame):
         self.locked = locked
         self.remove_btn.setEnabled(not locked)
         self.add_btn.setEnabled(not locked)
-        self.del_btn.setEnabled(not locked)
+        self.update_buttons()
         for row in self.dates:
             row.set_locked(locked)
 
@@ -1002,9 +1146,12 @@ class SettingsDialog(QDialog):
         change = QPushButton("Değiştir")
         change.clicked.connect(self._pick_output)
         change.setEnabled(not window.worker)
+        open_btn = QPushButton("Klasörü aç")
+        open_btn.clicked.connect(window.open_output)
         out_row = QHBoxLayout()
         out_row.addWidget(self.out_path, 1)
         out_row.addWidget(change)
+        out_row.addWidget(open_btn)
         self.monthly = QCheckBox("Aylara göre klasörle")
         self.monthly.setChecked(window.monthly)
         self.monthly.toggled.connect(self._set_monthly)
@@ -1046,7 +1193,7 @@ class SettingsDialog(QDialog):
 
     def _refresh(self):
         w = self.main
-        self.out_path.setText(self.out_path.fontMetrics().elidedText(str(w.out_dir), Qt.ElideMiddle, 360))
+        self.out_path.setText(self.out_path.fontMetrics().elidedText(str(w.out_dir), Qt.ElideMiddle, 290))
         self.out_path.setToolTip(str(w.out_dir))
         example = output_path(w.out_dir, Path("video.mp4"), datetime(2026, 10, 12, 14, 30), w.monthly)
         if w.monthly:
@@ -1186,25 +1333,10 @@ class MainWindow(QMainWindow):
             line.setFixedHeight(1)
             return line
 
-        # Alt çubuk: çıktı klasörü + çalıştır
-        out_label = QLabel("Çıktı klasörü")
-        out_label.setObjectName("small")
-        self.out_path = QLabel()
-        self.out_path.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        self.change_btn = QToolButton(text="Değiştir")
-        self.change_btn.clicked.connect(self.pick_output)
-        open_btn = QToolButton(text="Klasörü aç")
-        open_btn.clicked.connect(self.open_output)
-        out_row = QHBoxLayout()
-        out_row.setSpacing(4)
-        out_row.addWidget(self.out_path)
-        out_row.addWidget(self.change_btn)
-        out_row.addWidget(open_btn)
-        out_row.addStretch()
-        out_box = QVBoxLayout()
-        out_box.setSpacing(2)
-        out_box.addWidget(out_label)
-        out_box.addLayout(out_row)
+        # Alt çubuk: çıktılara hızlı erişim + çalıştır (klasör ayarı Ayarlar'da)
+        open_out = QPushButton("📁  Çıktı klasörünü aç")
+        open_out.setToolTip("Klasörü değiştirmek için: ⚙ Ayarlar")
+        open_out.clicked.connect(self.open_output)
 
         self.hint = QLabel()
         self.hint.setObjectName("small")
@@ -1214,7 +1346,8 @@ class MainWindow(QMainWindow):
         self.run_btn.clicked.connect(self.run_or_stop)
         footer = QHBoxLayout()
         footer.setContentsMargins(20, 12, 16, 14)
-        footer.addLayout(out_box, 1)
+        footer.addWidget(open_out)
+        footer.addStretch()
         footer.addWidget(self.hint)
         footer.addSpacing(8)
         footer.addWidget(self.run_btn)
@@ -1227,6 +1360,8 @@ class MainWindow(QMainWindow):
         card_layout.addLayout(header)
         card_layout.addLayout(toolbar)
         card_layout.addWidget(divider())
+        self.work = WorkBanner()
+        card_layout.addWidget(self.work)
         card_layout.addWidget(self.scroll, 1)
         card_layout.addWidget(divider())
         card_layout.addLayout(footer)
@@ -1267,14 +1402,11 @@ class MainWindow(QMainWindow):
             self.title.setText("Başlamak için video ekleyin")
             self.subtitle.setText("")
         self.drop_zone.set_empty(not self.videos)
-        self.out_path.setText(self.out_path.fontMetrics().elidedText(str(self.out_dir), Qt.ElideMiddle, 340))
-        self.out_path.setToolTip(str(self.out_dir))
         self.clock.set_spinning(running)
 
         self.add_btn.setEnabled(not running)
         self.clear_btn.setEnabled(not running and bool(self.videos))
         self.clear_done_btn.setVisible(not running and done > 0)
-        self.change_btn.setEnabled(not running)
 
         self.run_btn.setEnabled(not (running and self.worker.stopped))
         if running:
@@ -1285,6 +1417,8 @@ class MainWindow(QMainWindow):
             self.run_btn.setObjectName("primary")
         repolish(self.run_btn, "s", running)
 
+        for v in self.videos:
+            v.update_buttons()
         if not self.flash_timer.isActive():
             self.hint.setText("İşleniyor… Pencereyi açık tutun." if running else "")
         self.update_tab_order()
@@ -1541,17 +1675,27 @@ class MainWindow(QMainWindow):
             self.refresh()
             return
 
+        self.run_total, self.run_done, self.run_errors = len(jobs), 0, 0
+        self.work.start(len(jobs))
         self.worker = Worker(jobs)
         self.worker.progress.connect(lambda row, f: row.set_state(RUNNING, f))
         self.worker.job_finished.connect(lambda row, state, msg: row.set_state(state, 1.0, msg))
-        self.worker.job_finished.connect(lambda *_: self.refresh())
+        self.worker.job_finished.connect(self.count_job)
         self.worker.finished.connect(self.on_finished)
         for v in self.videos:
             v.set_locked(True)
         self.worker.start()
         self.refresh()
 
+    def count_job(self, row, state, message):
+        if state in (DONE, EXISTS, ERROR):
+            self.run_done += state != ERROR
+            self.run_errors += state == ERROR
+            self.work.update_count(self.run_done + self.run_errors, self.run_total)
+        self.refresh()
+
     def on_finished(self):
+        self.work.finish(self.run_done, self.run_errors, self.worker.stopped)
         self.worker.deleteLater()
         self.worker = None
         for v in self.videos:
@@ -1735,6 +1879,9 @@ def run():
         window.show()
         if info and info.newer:
             window.show_update_banner(info)
+        if "--updated" in sys.argv:  # kurulum, uygulama içinden güncellemeden sonra böyle açar
+            notes = info.notes if info and info.latest == __version__ else ""
+            QTimer.singleShot(500, window, lambda: WhatsNewDialog(window, notes).exec())
         splash.raise_()
         splash.fade_out()
 
