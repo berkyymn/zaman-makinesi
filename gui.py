@@ -6,6 +6,7 @@ Kurallar için TASARIM.md'ye bakın.
 """
 
 import logging
+import math
 import os
 import re
 import shutil
@@ -69,7 +70,15 @@ QWidget { font-size: 13px; color: $text; }
 #divider { background: $divider; }
 #title { font-size: 16px; font-weight: 600; }
 #dialogTitle { font-size: 17px; font-weight: 600; }
-#section { font-size: 12px; font-weight: 600; color: $muted; }
+#settingsCard { background: $card; border: 1px solid $border; border-radius: 12px; }
+#settingsCard QLabel { background: transparent; }
+#cardTitle { font-size: 14px; font-weight: 600; }
+QPushButton#segLeft, QPushButton#segMid, QPushButton#segRight { border-radius: 0; padding: 6px 14px; }
+QPushButton#segLeft { border-top-left-radius: 17px; border-bottom-left-radius: 17px; }
+QPushButton#segMid { border-left: none; border-right: none; }
+QPushButton#segRight { border-top-right-radius: 17px; border-bottom-right-radius: 17px; }
+QPushButton#segLeft:checked, QPushButton#segMid:checked, QPushButton#segRight:checked {
+    background: $primary; color: $on_primary; border-color: $primary; }
 #muted { color: $muted; }
 #small { color: $muted; font-size: 12px; }
 #fileName { font-weight: 600; }
@@ -203,6 +212,11 @@ def reveal(path):
         subprocess.Popen(["open", "-R", str(path)])
     else:
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(path.parent)))
+
+
+def duration_text(secs):
+    secs = int(secs)
+    return f"{secs // 60} dk {secs % 60:02} sn" if secs >= 60 else f"{secs} sn"
 
 
 def gb(n):
@@ -354,6 +368,87 @@ class Clock(Logo):
         p.drawEllipse(c, s * 0.05, s * 0.05)
 
 
+class TimeBuddy(QWidget):
+    """Zaman Adam: kollu bacaklı küçük çalar saat. "run" modunda koşar, "wave" modunda el sallar."""
+
+    def __init__(self, size, mode="run"):
+        super().__init__()
+        self.setFixedSize(size, size)
+        self.mode = mode
+        self.phase = 0.0
+        self.timer = QTimer(self, interval=33)
+        self.timer.timeout.connect(self._tick)
+        self.timer.start()
+
+    def _tick(self):
+        if self.isVisible():
+            self.phase += 0.033
+            self.update()
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        p.scale(self.width() / 100, self.height() / 100)  # 100x100'lük bir kutuda çizilir
+        t = self.phase
+        run = self.mode == "run"
+        swing = math.sin(t * 12) if run else 0.0
+        p.translate(0, -4 * abs(swing) if run else 1.5 * math.sin(t * 2))
+        ink = QColor(theme["text"])
+        limb = QPen(ink, 5, Qt.SolidLine, Qt.RoundCap)
+
+        def limb_end(x, y, angle, length):
+            # angle: aşağıdan saat yönünde derece; pozitif = öne (sağa)
+            a = math.radians(angle)
+            end = QPointF(x + math.sin(a) * length, y + math.cos(a) * length)
+            p.setPen(limb)
+            p.drawLine(QPointF(x, y), end)
+            return end
+
+        if run:  # arkada hız çizgileri
+            p.setPen(QPen(QColor(theme["border"]), 3, Qt.SolidLine, Qt.RoundCap))
+            p.drawLine(QPointF(4, 38), QPointF(14, 38))
+            p.drawLine(QPointF(0, 50), QPointF(12, 50))
+
+        # Bacaklar ve ayaklar
+        for x, sign in ((43, 1), (57, -1)):
+            foot = limb_end(x, 68, 30 * swing * sign, 18)
+            p.setPen(Qt.NoPen)
+            p.setBrush(ink)
+            p.drawEllipse(foot + QPointF(2, 0), 5, 3)
+
+        # Kollar: koşarken bacakların tersine sallanır, beklerken biri el sallar
+        if run:
+            arms = ((26, 48, -25 - 40 * swing), (74, 48, 25 + 40 * swing))
+        else:
+            arms = ((26, 48, -30), (74, 44, 145 + 25 * math.sin(t * 7)))
+        for x, y, angle in arms:
+            hand = limb_end(x, y, angle, 15)
+            p.setPen(Qt.NoPen)
+            p.setBrush(ink)
+            p.drawEllipse(hand, 3.5, 3.5)
+
+        # Çalar saat zilleri ve gövde
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor(theme["primary"]))
+        p.drawEllipse(QPointF(31, 20), 8, 8)
+        p.drawEllipse(QPointF(69, 20), 8, 8)
+        p.drawEllipse(QPointF(50, 45), 27, 27)
+        p.setBrush(QColor("#ffffff"))
+        p.drawEllipse(QPointF(50, 45), 21, 21)
+        p.setBrush(QColor("#c6d6f2"))
+        for dx, dy in ((0, -16), (16, 0), (0, 16), (-16, 0)):
+            p.drawEllipse(QPointF(50 + dx, 45 + dy), 1.8, 1.8)
+
+        # Yüz: arada bir göz kırpar
+        eye = 0.6 if t % 3.5 < 0.12 else 3.4
+        p.setBrush(QColor("#202124"))
+        p.drawEllipse(QPointF(43, 41), 2.6, eye)
+        p.drawEllipse(QPointF(57, 41), 2.6, eye)
+        p.setPen(QPen(QColor("#202124"), 2.5, Qt.SolidLine, Qt.RoundCap))
+        p.setBrush(Qt.NoBrush)
+        p.drawArc(QRectF(43, 42, 14, 10), 200 * 16, 140 * 16)
+
+
 class DropOverlay(QWidget):
     """Video sürüklenirken bütün pencerenin üstüne gelen katman."""
 
@@ -501,6 +596,10 @@ class DateRow(QWidget):
         self.edit.editingFinished.connect(self._on_leave)
         self.edit.returnPressed.connect(lambda: self.next_requested.emit(self))
 
+        self.buddy = TimeBuddy(38)
+        self.started = 0.0
+        self.ticker = QTimer(self, interval=500)  # işlenirken geçen süreyi günceller
+        self.ticker.timeout.connect(self.render)
         self.bar = QProgressBar()
         self.bar.setRange(0, 1000)
         self.bar.setTextVisible(False)
@@ -515,11 +614,12 @@ class DateRow(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
         layout.addWidget(self.edit)
-        layout.addSpacing(14)
+        layout.addSpacing(10)
+        layout.addWidget(self.buddy)
         layout.addWidget(self.bar)
-        layout.addWidget(self.status)
+        layout.addSpacing(4)
+        layout.addWidget(self.status, 1)
         layout.addWidget(self.show_btn)
-        layout.addStretch()
         self.render()
 
     def digits(self):
@@ -555,6 +655,11 @@ class DateRow(QWidget):
 
     def set_state(self, state, progress=0.0, message="", output=None):
         appeared = state in (DONE, EXISTS) and self.state != state
+        if state == RUNNING and self.state != RUNNING:
+            self.started = time.monotonic()
+            self.ticker.start()
+        elif state != RUNNING:
+            self.ticker.stop()
         self.state, self.progress, self.message = state, progress, message
         if output:
             self.output = output
@@ -574,6 +679,7 @@ class DateRow(QWidget):
         repolish(self.edit, "invalid", bool(visible_problem))
 
         self.bar.setVisible(self.state == RUNNING)
+        self.buddy.setVisible(self.state == RUNNING)
         self.bar.setValue(int(self.progress * 1000))
         self.show_btn.setVisible(finished and self.output is not None)
 
@@ -582,7 +688,8 @@ class DateRow(QWidget):
         elif self.state == QUEUED:
             text, style = "Sırada", "muted"
         elif self.state == RUNNING:
-            text, style = f"%{int(self.progress * 100)}", "muted"
+            elapsed = duration_text(time.monotonic() - self.started)
+            text, style = f"%{int(self.progress * 100)}  ·  {elapsed}", "muted"
         elif self.state == DONE:
             text, style = "✓  Tamamlandı" + (f"  ·  {self.message} sürdü" if self.message else ""), "ok"
         elif self.state == EXISTS:
@@ -802,8 +909,7 @@ class Worker(QThread):
                 main.process(src, dst, start,
                              on_progress=lambda f, row=row: self.progress.emit(row, f),
                              should_stop=lambda: self.stopped)
-                secs = round(time.monotonic() - began)
-                took = f"{secs // 60} dk {secs % 60} sn" if secs >= 60 else f"{max(secs, 1)} sn"
+                took = duration_text(max(round(time.monotonic() - began), 1))
                 log.info("Bitti (%s): %s", took, dst)
                 self.job_finished.emit(row, DONE, took)
             except main.Cancelled:
@@ -842,22 +948,55 @@ class SettingsDialog(QDialog):
         super().__init__(window)
         self.main = window
         self.setWindowTitle("Ayarlar")
-        self.setMinimumWidth(500)
+        self.setFixedWidth(560)
         self.check = None
 
-        def section(text):
-            label = QLabel(text.upper())
-            label.setObjectName("section")
-            return label
+        def card(title, hint, *rows):
+            box = QFrame()
+            box.setObjectName("settingsCard")
+            layout = QVBoxLayout(box)
+            layout.setContentsMargins(18, 14, 18, 16)
+            layout.setSpacing(8)
+            heading = QLabel(title)
+            heading.setObjectName("cardTitle")
+            layout.addWidget(heading)
+            if hint:
+                sub = QLabel(hint)
+                sub.setObjectName("small")
+                layout.addWidget(sub)
+            layout.addSpacing(2)
+            for row in rows:
+                layout.addLayout(row) if isinstance(row, QHBoxLayout) else layout.addWidget(row)
+            return box
 
-        # Görünüm
+        # Üst: el sallayan Zaman Adam
+        buddy = TimeBuddy(72, mode="wave")
+        hello = QLabel("Ayarlar")
+        hello.setObjectName("dialogTitle")
+        version = QLabel(f"{APP_NAME} · sürüm {__version__}")
+        version.setObjectName("muted")
+        titles = QVBoxLayout()
+        titles.setSpacing(2)
+        titles.addStretch()
+        titles.addWidget(hello)
+        titles.addWidget(version)
+        titles.addStretch()
+        top = QHBoxLayout()
+        top.setSpacing(14)
+        top.addWidget(buddy)
+        top.addLayout(titles, 1)
+
+        # Görünüm: bitişik üç seçenek
         themes = QHBoxLayout()
-        themes.setSpacing(8)
+        themes.setSpacing(0)
         group = QButtonGroup(self)
-        for key, text in (("system", "Sistem"), ("light", "Açık"), ("dark", "Koyu")):
+        choices = (("system", "Sistem"), ("light", "Açık"), ("dark", "Koyu"))
+        for i, (key, text) in enumerate(choices):
             b = QPushButton(text)
+            b.setObjectName(("segLeft", "segMid", "segRight")[i])
             b.setCheckable(True)
             b.setChecked(window.theme_choice == key)
+            b.setMinimumWidth(110)
             b.clicked.connect(lambda _=False, k=key: window.set_theme(k))
             group.addButton(b)
             themes.addWidget(b)
@@ -872,65 +1011,55 @@ class SettingsDialog(QDialog):
         out_row = QHBoxLayout()
         out_row.addWidget(self.out_path, 1)
         out_row.addWidget(change)
-        self.monthly = QCheckBox("Çıktıları aylara göre klasörle")
+        self.monthly = QCheckBox("Aylara göre klasörle")
         self.monthly.setChecked(window.monthly)
         self.monthly.toggled.connect(self._set_monthly)
+        self.explain = QLabel()
+        self.explain.setObjectName("small")
         self.example = QLabel()
         self.example.setObjectName("small")
-        self.example.setWordWrap(True)
 
-        # Hakkında
-        about = QLabel(f"{APP_NAME}  ·  sürüm {__version__}")
-        self.update_status = QLabel()
-        self.update_status.setObjectName("small")
+        # Yardım
         self.update_btn = QPushButton("Güncellemeleri denetle")
         self.update_btn.clicked.connect(self._check_updates)
         log_btn = QPushButton("Hata kaydını aç")
-        log_btn.setToolTip("Bir sorun olursa bu dosyayı geliştiriciye gönderebilirsiniz")
         log_btn.clicked.connect(self._open_log)
-        about_row = QHBoxLayout()
-        about_row.addWidget(self.update_btn)
-        about_row.addWidget(log_btn)
-        about_row.addStretch()
+        help_row = QHBoxLayout()
+        help_row.addWidget(self.update_btn)
+        help_row.addWidget(log_btn)
+        help_row.addStretch()
+        self.update_status = QLabel()
+        self.update_status.setObjectName("small")
+        self.update_status.hide()
 
         close = QPushButton("Kapat")
         close.setObjectName("primary")
         close.clicked.connect(self.accept)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(24, 22, 24, 20)
-        layout.setSpacing(10)
-        title = QLabel("Ayarlar")
-        title.setObjectName("dialogTitle")
-        layout.addWidget(title)
-        layout.addSpacing(6)
-        layout.addWidget(section("Görünüm"))
-        layout.addLayout(themes)
-        layout.addSpacing(10)
-        layout.addWidget(section("Çıktılar"))
-        layout.addLayout(out_row)
-        layout.addWidget(self.monthly)
-        layout.addWidget(self.example)
-        layout.addSpacing(10)
-        layout.addWidget(section("Hakkında"))
-        layout.addWidget(about)
-        layout.addLayout(about_row)
-        layout.addWidget(self.update_status)
-        layout.addSpacing(8)
+        layout.setContentsMargins(24, 20, 24, 20)
+        layout.setSpacing(12)
+        layout.addLayout(top)
+        layout.addSpacing(4)
+        layout.addWidget(card("Görünüm", "Sistem seçiliyse bilgisayarınızın açık/koyu ayarına uyar.", themes))
+        layout.addWidget(card("Çıktılar", "İşlenen videolar bu klasöre kaydedilir.",
+                              out_row, self.monthly, self.explain, self.example))
+        layout.addWidget(card("Yardım", "Bir sorun olursa hata kaydını geliştiriciye gönderebilirsiniz.",
+                              help_row, self.update_status))
+        layout.addSpacing(4)
         layout.addWidget(close, 0, Qt.AlignRight)
         self._refresh()
 
     def _refresh(self):
         w = self.main
-        self.out_path.setText(self.out_path.fontMetrics().elidedText(str(w.out_dir), Qt.ElideMiddle, 340))
+        self.out_path.setText(self.out_path.fontMetrics().elidedText(str(w.out_dir), Qt.ElideMiddle, 360))
         self.out_path.setToolTip(str(w.out_dir))
         example = output_path(w.out_dir, Path("video.mp4"), datetime(2026, 10, 12, 14, 30), w.monthly)
         if w.monthly:
-            text = ("Her ay için ayrı bir klasör açılır. Klasör, videoya basılan tarihin ayıdır "
-                    "(videoyu işlediğiniz gün değil).")
+            self.explain.setText("Her ay ayrı klasör açılır: videoya basılan tarihin ayı (işlendiği gün değil).")
         else:
-            text = "Tüm çıktılar alt klasör açılmadan doğrudan çıktı klasörüne kaydedilir."
-        self.example.setText(f"{text}<br>Örnek: <b>{example.relative_to(w.out_dir.parent)}</b>")
+            self.explain.setText("Alt klasör açılmaz; tüm çıktılar doğrudan çıktı klasörüne kaydedilir.")
+        self.example.setText(f"Örnek: <b>{example.relative_to(w.out_dir.parent)}</b>")
 
     def _pick_output(self):
         self.main.pick_output()
@@ -947,6 +1076,7 @@ class SettingsDialog(QDialog):
 
     def _check_updates(self):
         self.update_btn.setEnabled(False)
+        self.update_status.show()
         self.update_status.setText("Kontrol ediliyor…")
         self.check = updater.UpdateCheck(self)
         self.check.finished.connect(self._checked)
@@ -957,7 +1087,7 @@ class SettingsDialog(QDialog):
         if info is None:
             self.update_status.setText("Kontrol edilemedi. İnternet bağlantınızı kontrol edin.")
         elif not info.newer:
-            self.update_status.setText("En güncel sürümü kullanıyorsunuz.")
+            self.update_status.setText("✓  En güncel sürümü kullanıyorsunuz.")
         else:
             self.update_status.setText(f"Yeni sürüm var: {info.latest}")
             self.main.update_info = info

@@ -78,7 +78,7 @@ ayrı bir çıktı üretir. İşler sırayla, tek tek işlenir. Çıktıda ses y
 |---|---|
 | Hazır | boş |
 | Sırada | gri "Sırada" |
-| İşleniyor | mavi ilerleme çubuğu + %X |
+| İşleniyor | koşan Zaman Adam + mavi ilerleme çubuğu + "%X · 12 sn" (süre canlı sayılır) |
 | Tamamlandı | yeşil "✓ Tamamlandı · 42 sn sürdü" (yumuşakça belirir) + **Göster** (dosyayı klasöründe seçili açar) |
 | Zaten vardı | gri "✓ Zaten vardı, atlandı" + **Göster** |
 | Hata | kırmızı ⚠ + düz Türkçe mesaj ("Diskte yer kalmadı", "Video bulunamadı…", "Video okunamadı…"); ayrıntı hata kaydına yazılır, bir sonraki çalıştırmada tekrar denenir |
@@ -117,7 +117,8 @@ ayrı bir çıktı üretir. İşler sırayla, tek tek işlenir. Çıktıda ses y
 - İşlenmemiş video varsa: "Listede henüz işlenmemiş N video var…" **[Çık] [Vazgeç]**
 
 ### Ayarlar (⚙)
-- Tema: **Sistem / Açık / Koyu** (Sistem seçiliyse Windows teması değişince uygulama da değişir).
+- Üstte el sallayan Zaman Adam; ayarlar üç kartta: Görünüm, Çıktılar, Yardım.
+- Tema: **Sistem / Açık / Koyu** (bitişik üç seçenek) (Sistem seçiliyse Windows teması değişince uygulama da değişir).
 - Çıktı klasörü + "Çıktıları aylara göre klasörle"; açıkken de kapalıyken de ne olacağı
   bir cümleyle ve örnek yolla anlatılır.
 - Sürüm + **Güncellemeleri denetle** + **Hata kaydını aç** (kullanıcının uygulama veri
@@ -131,6 +132,8 @@ ayrı bir çıktı üretir. İşler sırayla, tek tek işlenir. Çıktıda ses y
   gerçek saati gösterir; sarı saniye ibresi yaylanarak ilerler.
 - Video sürüklenince bütün pencereye mavi bir katman gelir; ortada ibreleri geriye dönen logo.
 - Yeni satırlar ve "✓ Tamamlandı" yumuşakça belirir; silinen tarih ve videolar solup kapanarak gider.
+- **Zaman Adam**: kollu bacaklı küçük bir çalar saat. İşlenen satırda koşar, ayarlarda el sallar,
+  arada bir göz kırpar. **Göster** butonu satırın en sağında durur.
 
 ## Güncelleme
 
