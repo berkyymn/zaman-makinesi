@@ -369,7 +369,7 @@ class Clock(Logo):
 
 
 class TimeBuddy(QWidget):
-    """Zaman Adam: kollu bacaklı küçük çalar saat. "run" modunda koşar, "wave" modunda el sallar."""
+    """Zaman Adam: uygulama simgesinin kollu bacaklı hali. "run" modunda koşar, "wave" modunda el sallar."""
 
     def __init__(self, size, mode="run"):
         super().__init__()
@@ -406,47 +406,41 @@ class TimeBuddy(QWidget):
 
         if run:  # arkada hız çizgileri
             p.setPen(QPen(QColor(theme["border"]), 3, Qt.SolidLine, Qt.RoundCap))
-            p.drawLine(QPointF(4, 38), QPointF(14, 38))
-            p.drawLine(QPointF(0, 50), QPointF(12, 50))
+            p.drawLine(QPointF(2, 30), QPointF(12, 30))
+            p.drawLine(QPointF(0, 44), QPointF(10, 44))
 
         # Bacaklar ve ayaklar
-        for x, sign in ((43, 1), (57, -1)):
-            foot = limb_end(x, 68, 30 * swing * sign, 18)
+        for x, sign in ((40, 1), (60, -1)):
+            foot = limb_end(x, 70, 30 * swing * sign, 18)
             p.setPen(Qt.NoPen)
             p.setBrush(ink)
             p.drawEllipse(foot + QPointF(2, 0), 5, 3)
 
         # Kollar: koşarken bacakların tersine sallanır, beklerken biri el sallar
         if run:
-            arms = ((26, 48, -25 - 40 * swing), (74, 48, 25 + 40 * swing))
+            arms = ((20, 44, -25 - 40 * swing), (80, 44, 25 + 40 * swing))
         else:
-            arms = ((26, 48, -30), (74, 44, 145 + 25 * math.sin(t * 7)))
+            arms = ((20, 44, -30), (80, 40, 145 + 25 * math.sin(t * 7)))
         for x, y, angle in arms:
             hand = limb_end(x, y, angle, 15)
             p.setPen(Qt.NoPen)
             p.setBrush(ink)
             p.drawEllipse(hand, 3.5, 3.5)
 
-        # Çalar saat zilleri ve gövde
-        p.setPen(Qt.NoPen)
-        p.setBrush(QColor(theme["primary"]))
-        p.drawEllipse(QPointF(31, 20), 8, 8)
-        p.drawEllipse(QPointF(69, 20), 8, 8)
-        p.drawEllipse(QPointF(50, 45), 27, 27)
-        p.setBrush(QColor("#ffffff"))
-        p.drawEllipse(QPointF(50, 45), 21, 21)
-        p.setBrush(QColor("#c6d6f2"))
-        for dx, dy in ((0, -16), (16, 0), (0, 16), (-16, 0)):
-            p.drawEllipse(QPointF(50 + dx, 45 + dy), 1.8, 1.8)
+        # Gövde: uygulama simgesinin kendisi (mavi kare, kadran, geri dönen ok)
+        body = QRectF(18, 8, 64, 64)
+        draw_icon(p, body, hands=False)
 
-        # Yüz: arada bir göz kırpar
+        # Kadranın üstüne yüz: arada bir göz kırpar
+        cx, cy = body.center().x(), body.center().y()
         eye = 0.6 if t % 3.5 < 0.12 else 3.4
+        p.setPen(Qt.NoPen)
         p.setBrush(QColor("#202124"))
-        p.drawEllipse(QPointF(43, 41), 2.6, eye)
-        p.drawEllipse(QPointF(57, 41), 2.6, eye)
+        p.drawEllipse(QPointF(cx - 6, cy - 3), 2.6, eye)
+        p.drawEllipse(QPointF(cx + 6, cy - 3), 2.6, eye)
         p.setPen(QPen(QColor("#202124"), 2.5, Qt.SolidLine, Qt.RoundCap))
         p.setBrush(Qt.NoBrush)
-        p.drawArc(QRectF(43, 42, 14, 10), 200 * 16, 140 * 16)
+        p.drawArc(QRectF(cx - 7, cy - 2, 14, 10), 200 * 16, 140 * 16)
 
 
 class DropOverlay(QWidget):
@@ -1269,8 +1263,9 @@ class MainWindow(QMainWindow):
             sub = f"{done} / {len(jobs)} tamamlandı" if jobs else ""
             self.subtitle.setText(sub + (f" · {errors} hata" if errors else ""))
         else:
-            self.title.setText(APP_NAME)
-            self.subtitle.setText("Videolarınıza zaman damgası ekleyin")
+            # Uygulamanın adı zaten pencere başlığında yazıyor; burada ne yapılacağını söyleriz
+            self.title.setText("Başlamak için video ekleyin")
+            self.subtitle.setText("")
         self.drop_zone.set_empty(not self.videos)
         self.out_path.setText(self.out_path.fontMetrics().elidedText(str(self.out_dir), Qt.ElideMiddle, 340))
         self.out_path.setToolTip(str(self.out_dir))

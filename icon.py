@@ -19,9 +19,10 @@ YELLOW = QColor("#fbbc04")
 TICK = QColor("#c6d6f2")
 
 
-def draw_icon(p, rect, arc=1.0, turn=0.0, clock=None):
+def draw_icon(p, rect, arc=1.0, turn=0.0, clock=None, hands=True):
     # arc: dış okun ne kadarı çizilsin (0-1). turn: akrep/yelkovan kaç tur geri dönsün.
     # clock: (saat, dakika, saniye) verilirse ibreler o saati gösterir; saniye None olabilir.
+    # hands=False: ibresiz kadran (Zaman Adam yüzünü kendisi çizer).
     s = rect.width()
     cx, cy = rect.center().x(), rect.center().y()
     p.save()
@@ -70,6 +71,9 @@ def draw_icon(p, rect, arc=1.0, turn=0.0, clock=None):
         p.setPen(QPen(BLUE, width, Qt.SolidLine, Qt.RoundCap))
         p.drawLine(QPointF(cx, cy), QPointF(cx + math.sin(a) * length, cy - math.cos(a) * length))
 
+    if not hands:
+        p.restore()
+        return
     hour, minute, second = clock if clock else (10, 0, None)
     hand(hour * 30 - turn * 30, face * 0.48, s * 0.05)
     hand(minute * 6 - turn * 360, face * 0.72, s * 0.042)

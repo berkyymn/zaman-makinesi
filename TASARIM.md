@@ -132,7 +132,7 @@ ayrı bir çıktı üretir. İşler sırayla, tek tek işlenir. Çıktıda ses y
   gerçek saati gösterir; sarı saniye ibresi yaylanarak ilerler.
 - Video sürüklenince bütün pencereye mavi bir katman gelir; ortada ibreleri geriye dönen logo.
 - Yeni satırlar ve "✓ Tamamlandı" yumuşakça belirir; silinen tarih ve videolar solup kapanarak gider.
-- **Zaman Adam**: kollu bacaklı küçük bir çalar saat. İşlenen satırda koşar, ayarlarda el sallar,
+- **Zaman Adam**: uygulama simgesinin kollu bacaklı, yüzlü hali. İşlenen satırda koşar, ayarlarda el sallar,
   arada bir göz kırpar. **Göster** butonu satırın en sağında durur.
 
 ## Güncelleme
