@@ -115,8 +115,8 @@ QProgressBar { border: none; background: $track; border-radius: 3px; }
 QProgressBar::chunk { background: $primary; border-radius: 3px; }
 #dropZone { border: 2px dashed $border; border-radius: 12px; }
 #dropZone QLabel { color: $muted; }
-#banner { background: $soft; border-radius: 10px; }
-#banner QLabel, #info { color: $soft_text; }
+#info { color: $soft_text; }
+#badge { background: $danger; border: 2px solid $card; border-radius: 7px; }
 #info { background: $soft; border-radius: 8px; padding: 10px 12px; }
 #thumb { background: $thumb; border-radius: 6px; color: $disabled_text; }
 """)
@@ -495,6 +495,7 @@ class BuddyToast(QFrame):
         shadow = QGraphicsDropShadowEffect(self, blurRadius=28, offset=QPointF(0, 6), color=QColor(0, 0, 0, 70))
         self.setGraphicsEffect(shadow)
         self.anim = None
+        self.on_click = None
         self.hide()
 
     @staticmethod
@@ -513,10 +514,13 @@ class BuddyToast(QFrame):
         parent = self.parentWidget()
         return QPoint(parent.width() - self.width() - 28, parent.height() - self.height() - 96)
 
-    def say(self, text, mode="run", ms=4000):
-        # Aşağıdan zıplayarak gelir, "dürtme" gibi hafifçe sallanır, bir süre bekler, aşağı kayıp gider
+    def say(self, text, mode="run", ms=4000, on_click=None):
+        # Aşağıdan zıplayarak gelir, "dürtme" gibi hafifçe sallanır, bir süre bekler, aşağı kayıp gider.
+        # on_click verilirse balona tıklanınca o çalışır (ör. güncelleme penceresini açmak).
         if self.anim:
             self.anim.stop()
+        self.on_click = on_click
+        self.setCursor(Qt.PointingHandCursor if on_click else Qt.ArrowCursor)
         self.text.setText(text)
         self.buddy.set_mode(mode)
         self.adjustSize()
@@ -550,6 +554,8 @@ class BuddyToast(QFrame):
         if self.anim:
             self.anim.stop()
         self.hide()
+        if self.on_click:
+            self.on_click()
 
 
 class WhatsNewDialog(QDialog):
@@ -1180,6 +1186,14 @@ class SettingsDialog(QDialog):
         self.update_status = QLabel()
         self.update_status.setObjectName("small")
         self.update_status.hide()
+        info = window.update_info
+        if info and info.newer:
+            self.update_btn.setText(f"Şimdi güncelle ({info.latest})")
+            self.update_btn.setObjectName("primary")
+            self.update_btn.clicked.disconnect()
+            self.update_btn.clicked.connect(window.open_update)
+            self.update_status.setText(f"🎉  Yeni sürüm hazır: {info.latest}. Siz {__version__} kullanıyorsunuz.")
+            self.update_status.show()
 
         close = QPushButton("Kapat")
         close.setObjectName("primary")
@@ -1260,23 +1274,6 @@ class MainWindow(QMainWindow):
         self.update_info = None
         self.last_date = ""
 
-        # Güncelleme şeridi
-        self.banner = QFrame()
-        self.banner.setObjectName("banner")
-        self.banner_text = QLabel()
-        banner_update = QPushButton("Güncelle")
-        banner_update.setObjectName("primary")
-        banner_update.clicked.connect(self.open_update)
-        banner_close = QToolButton(text="×")
-        banner_close.setObjectName("remove")
-        banner_close.clicked.connect(self.banner.hide)
-        b = QHBoxLayout(self.banner)
-        b.setContentsMargins(16, 8, 8, 8)
-        b.addWidget(self.banner_text, 1)
-        b.addWidget(banner_update)
-        b.addWidget(banner_close)
-        self.banner.hide()
-
         # Üst bilgi: canlı saat, başlık, ayarlar
         self.clock = Clock(30)
         self.title = QLabel()
@@ -1285,6 +1282,13 @@ class MainWindow(QMainWindow):
         self.subtitle.setObjectName("muted")
         settings_btn = QPushButton("⚙  Ayarlar")
         settings_btn.clicked.connect(lambda: SettingsDialog(self).exec())
+        # Yeni sürüm varken Ayarlar butonunun köşesinde kırmızı nokta
+        self.badge = QLabel(settings_btn)
+        self.badge.setObjectName("badge")
+        self.badge.setFixedSize(14, 14)
+        self.badge.setToolTip("Yeni sürüm var")
+        self.badge.hide()
+        self.settings_btn = settings_btn
         header = QHBoxLayout()
         header.setContentsMargins(18, 14, 16, 4)
         header.setSpacing(10)
@@ -1377,7 +1381,6 @@ class MainWindow(QMainWindow):
         root = QVBoxLayout(central)
         root.setContentsMargins(16, 16, 16, 16)
         root.setSpacing(10)
-        root.addWidget(self.banner)
         root.addWidget(card, 1)
         self.setCentralWidget(central)
         self.overlay = DropOverlay(central)
@@ -1743,10 +1746,13 @@ class MainWindow(QMainWindow):
 
     # --- Güncelleme -------------------------------------------------------------
 
-    def show_update_banner(self, info):
+    def announce_update(self, info):
+        # Açılışta bir kez: Zaman Adam haber verir, Ayarlar butonunda kırmızı nokta kalır
         self.update_info = info
-        self.banner_text.setText(f"Yeni sürüm hazır: <b>{info.latest}</b>. Güncellemek bir dakika sürer.")
-        self.banner.show()
+        self.badge.move(self.settings_btn.width() - 17, 3)
+        self.badge.show()
+        self.toast.say(f"Yeni sürüm hazır ({info.latest})! Güncellemek için bana tıklayın "
+                       "ya da Ayarlar'a bakın.", "wave", 7000, on_click=self.open_update)
 
     def open_update(self):
         if self.worker:
@@ -1895,7 +1901,7 @@ def run():
             return
         window.show()
         if info and info.newer:
-            window.show_update_banner(info)
+            QTimer.singleShot(1200, window, lambda: window.announce_update(info))
         if "--updated" in sys.argv:  # kurulum, uygulama içinden güncellemeden sonra böyle açar
             notes = info.notes if info and info.latest == __version__ else ""
             QTimer.singleShot(500, window, lambda: WhatsNewDialog(window, notes).exec())

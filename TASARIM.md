@@ -147,7 +147,9 @@ ayrı bir çıktı üretir. İşler sırayla, tek tek işlenir. Çıktıda ses y
 - Açılışta `version.json` okunur (en son sürümün release'inden, 3 sn zaman aşımı):
   `{"latest": "1.3.0", "min_supported": "1.2.0", "url": "...", "sha256": "...", "notes": "..."}`
 - Sürüm `< min_supported` → **zorunlu**: ana pencere açılmaz; notlar + [Güncelle] [Çık].
-- Sürüm `< latest` → üstte kapatılabilir şerit: "Yeni sürüm var · Güncelle".
+- Sürüm `< latest` → açılıştan ~1 sn sonra Zaman Adam sağ altta bir kez haber verir
+  ("Yeni sürüm hazır! Güncellemek için bana tıklayın"; tıklayınca güncelleme penceresi açılır).
+  **⚙ Ayarlar** butonunda kırmızı nokta kalır; Ayarlar'ın Yardım kartında "Şimdi güncelle" görünür.
 - Ulaşılamazsa → sessizce devam (internet yokken de çalışsın).
 - Ayarlar'daki **Güncellemeleri denetle** aynı kontrolü elle yapar.
 - Güncelle → kurulum dosyası indirilir (buton "İndiriliyor… %42" olur ve pasifleşir, "Lütfen
