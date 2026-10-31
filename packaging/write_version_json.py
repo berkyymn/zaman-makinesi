@@ -34,4 +34,4 @@ data = {
 download = f"https://github.com/{repo}/releases/latest/download/{setup.name}"
 notes = (data["notes"] + "\n\n" if data["notes"] else "") + f"İndir: {download}\n"
 (setup.parent / "notes.md").write_text(notes, encoding="utf-8")
-print(json.dumps(data, ensure_ascii=False, indent=2))
+print(json.dumps(data, indent=2))  # Windows konsolu Türkçe karakter basamayabiliyor

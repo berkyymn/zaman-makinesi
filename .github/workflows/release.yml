@@ -9,6 +9,9 @@ on:
 permissions:
   contents: write
 
+env:
+  PYTHONUTF8: "1"  # Windows'ta Python çıktısı Türkçe karakterlerde hata vermesin
+
 jobs:
   windows:
     runs-on: windows-latest
