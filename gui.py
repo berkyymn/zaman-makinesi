@@ -22,11 +22,12 @@ from pathlib import Path
 from string import Template
 
 import cv2
-from PySide6.QtCore import (QEasingCurve, QParallelAnimationGroup, QPointF, QPropertyAnimation, QRectF, QSettings, QStandardPaths, Qt,
+from PySide6.QtCore import (QEasingCurve, QParallelAnimationGroup, QPauseAnimation, QPoint, QPointF,
+                            QPropertyAnimation, QSequentialAnimationGroup, QRectF, QSettings, QStandardPaths, Qt,
                             QThread, QTimer, QUrl, QVariantAnimation, Signal)
 from PySide6.QtGui import QColor, QDesktopServices, QFont, QImage, QPainter, QPalette, QPen, QPixmap
 from PySide6.QtWidgets import (QApplication, QButtonGroup, QCheckBox, QDialog, QFileDialog, QFrame,
-                               QGraphicsOpacityEffect, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox,
+                               QGraphicsDropShadowEffect, QGraphicsOpacityEffect, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox,
                                QProgressBar, QPushButton, QScrollArea, QToolButton, QVBoxLayout, QWidget)
 
 import main
@@ -97,10 +98,8 @@ QPushButton#danger:hover { background: $danger_hover; }
 QPushButton#primary:disabled, QPushButton#danger:disabled { background: $disabled; color: $disabled_text; }
 QToolButton#cancel { color: $danger; }
 QToolButton#cancel:hover { background: $danger_soft; }
-#workBanner { background: $soft; border-bottom: 1px solid $divider; }
-#bubble { background: $card; color: $text; border: 1px solid $border; border-radius: 14px;
-          padding: 10px 14px; font-size: 14px; }
-#workCount { color: $soft_text; font-weight: 600; }
+#toast { background: $card; border: 1px solid $border; border-radius: 18px; }
+#toastText { font-size: 14px; }
 QLineEdit { border: 1px solid $border; border-radius: 8px; padding: 6px 8px; background: $field; color: $text;
             font-family: $mono; font-size: 14px; }
 QLineEdit:focus { border: 2px solid $primary; padding: 5px 7px; }
@@ -382,6 +381,7 @@ class TimeBuddy(QWidget):
     def set_mode(self, mode):
         self.mode = mode
         self.phase = 0.0
+        self.timer.start()
         self.update()
 
 
@@ -398,6 +398,8 @@ class TimeBuddy(QWidget):
         if self.isVisible():
             self.phase += 0.033
             self.update()
+            if self.mode == "ok" and self.phase > 1.0:
+                self.timer.stop()  # zıplama bitti, artık kıpırdamıyor
 
     def paintEvent(self, event):
         p = QPainter(self)
@@ -474,30 +476,25 @@ class TimeBuddy(QWidget):
         p.drawArc(QRectF(cx - 7, cy - 2, 14, 10), 200 * 16, 140 * 16)
 
 
-class WorkBanner(QFrame):
-    """İşlem sürerken listenin üstünde koşan Zaman Adam ve iş sayısına göre konuşması."""
+class BuddyToast(QFrame):
+    """Zaman Adam'ın sağ altta birkaç saniyeliğine zıplayarak beliren konuşma balonu."""
 
-    def __init__(self):
-        super().__init__()
-        self.setObjectName("workBanner")
-        self.buddy = TimeBuddy(64)
-        self.bubble = QLabel()
-        self.bubble.setObjectName("bubble")
-        self.count = QLabel()
-        self.count.setObjectName("workCount")
-        text = QVBoxLayout()
-        text.setSpacing(6)
-        text.addStretch()
-        text.addWidget(self.bubble, 0, Qt.AlignLeft)
-        text.addWidget(self.count)
-        text.addStretch()
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.setObjectName("toast")
+        self.buddy = TimeBuddy(72)
+        self.text = QLabel()
+        self.text.setObjectName("toastText")
+        self.text.setWordWrap(True)
+        self.text.setFixedWidth(250)
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(20, 10, 20, 10)
-        layout.setSpacing(14)
+        layout.setContentsMargins(14, 10, 18, 10)
+        layout.setSpacing(10)
         layout.addWidget(self.buddy)
-        layout.addLayout(text, 1)
-        self.hide_timer = QTimer(self, singleShot=True, interval=7000)
-        self.hide_timer.timeout.connect(self.hide)
+        layout.addWidget(self.text)
+        shadow = QGraphicsDropShadowEffect(self, blurRadius=28, offset=QPointF(0, 6), color=QColor(0, 0, 0, 70))
+        self.setGraphicsEffect(shadow)
+        self.anim = None
         self.hide()
 
     @staticmethod
@@ -512,32 +509,47 @@ class WorkBanner(QFrame):
             return f"Vay, {n} video! Biraz sürecek, bir çay koyun ☕"
         return f"{n} video mu?! Derin bir nefes… Başlıyorum! 💪"
 
-    def start(self, total):
-        self.hide_timer.stop()
-        self.buddy.set_mode("run")
-        self.bubble.setText(self.pep_talk(total))
-        self.update_count(0, total)
+    def target(self):
+        parent = self.parentWidget()
+        return QPoint(parent.width() - self.width() - 28, parent.height() - self.height() - 96)
+
+    def say(self, text, mode="run", ms=4000):
+        # Aşağıdan zıplayarak gelir, "dürtme" gibi hafifçe sallanır, bir süre bekler, aşağı kayıp gider
+        if self.anim:
+            self.anim.stop()
+        self.text.setText(text)
+        self.buddy.set_mode(mode)
+        self.adjustSize()
+        end = self.target()
+        start = QPoint(end.x(), self.parentWidget().height())
+        self.move(start)
         self.show()
-        fade_in(self)
+        self.raise_()
 
-    def update_count(self, done, total):
-        self.count.setText(f"{done} / {total} video tamamlandı")
-        if total >= 4 and done == total // 2:
-            self.bubble.setText("Yarısı bitti, devam ediyorum! 🏃")
-        elif total >= 2 and done == total - 1:
-            self.bubble.setText("Son video, neredeyse bitti!")
+        def move(a, b, dur, curve):
+            return QPropertyAnimation(self, b"pos", duration=dur, startValue=a, endValue=b, easingCurve=curve)
 
-    def finish(self, done, errors, stopped):
-        if stopped:
-            self.buddy.set_mode("wave")
-            self.bubble.setText("Durdurdunuz. Kalanlar sırada bekliyor.")
-        elif errors:
-            self.buddy.set_mode("wave")
-            self.bubble.setText(f"{done} video hazır, {errors} tanesinde sorun çıktı. Kırmızı satırlara bakın.")
-        else:
-            self.buddy.set_mode("ok")
-            self.bubble.setText("Hepsi hazır! 🎉" if done != 1 else "Hazır! 🎉")
-        self.hide_timer.start()
+        self.anim = QSequentialAnimationGroup(self)
+        self.anim.addAnimation(move(start, end, 450, QEasingCurve.OutBack))
+        prev = end
+        for dx in (-7, 7, -4, 0):
+            self.anim.addAnimation(move(prev, end + QPoint(dx, 0), 70, QEasingCurve.InOutSine))
+            prev = end + QPoint(dx, 0)
+        self.anim.addAnimation(QPauseAnimation(ms))
+        self.anim.addAnimation(move(end, start, 320, QEasingCurve.InBack))
+        self.anim.finished.connect(self.hide)
+        self.anim.start()
+
+    def place(self):
+        # Pencere boyutu değişirse sağ alt köşede kalsın
+        if self.isVisible():
+            self.move(self.target())
+
+    def mousePressEvent(self, event):
+        # Tıklanınca hemen kapanır
+        if self.anim:
+            self.anim.stop()
+        self.hide()
 
 
 class WhatsNewDialog(QDialog):
@@ -720,7 +732,6 @@ class DateRow(QWidget):
         self.edit.returnPressed.connect(lambda: self.next_requested.emit(self))
 
         self.buddy = TimeBuddy(38)
-        self.cheering = False
         self.started = 0.0
         self.ticker = QTimer(self, interval=500)  # işlenirken geçen süreyi günceller
         self.ticker.timeout.connect(self.render)
@@ -791,16 +802,11 @@ class DateRow(QWidget):
         if appeared:
             fade_in(self.status, 400)
             fade_in(self.show_btn, 400)
-        if appeared and state == DONE:
-            self.cheering = True
+        if state == DONE:
             self.buddy.set_mode("ok")
-            self.render()
-            QTimer.singleShot(2600, self, self._stop_cheering)
+        elif state == RUNNING and self.buddy.mode != "run":
+            self.buddy.set_mode("run")
 
-    def _stop_cheering(self):
-        self.cheering = False
-        self.buddy.set_mode("run")
-        self.render()
 
     def set_locked(self, locked):
         self.locked = locked
@@ -813,7 +819,7 @@ class DateRow(QWidget):
         repolish(self.edit, "invalid", bool(visible_problem))
 
         self.bar.setVisible(self.state == RUNNING)
-        self.buddy.setVisible(self.state == RUNNING or self.cheering)
+        self.buddy.setVisible(self.state in (RUNNING, DONE))
         self.bar.setValue(int(self.progress * 1000))
         self.show_btn.setVisible(finished and self.output is not None)
 
@@ -825,9 +831,11 @@ class DateRow(QWidget):
             elapsed = duration_text(time.monotonic() - self.started)
             text, style = f"%{int(self.progress * 100)}  ·  {elapsed}", "muted"
         elif self.state == DONE:
-            text, style = "✓  Tamamlandı" + (f"  ·  {self.message} sürdü" if self.message else ""), "ok"
+            # Tik yok: yanında başparmağını kaldıran Zaman Adam duruyor
+            took = f"  ·  {self.message} sürdü" if self.message else ""
+            text, style = f"Tamamlandı{took}", "ok"
         elif self.state == EXISTS:
-            text, style = "✓  Zaten vardı, atlandı", "muted"
+            text, style = "Zaten vardı, atlandı", "muted"
         elif self.state == ERROR:
             text, style = f"⚠  {self.message}", "error"
         elif self.warning:
@@ -1360,8 +1368,6 @@ class MainWindow(QMainWindow):
         card_layout.addLayout(header)
         card_layout.addLayout(toolbar)
         card_layout.addWidget(divider())
-        self.work = WorkBanner()
-        card_layout.addWidget(self.work)
         card_layout.addWidget(self.scroll, 1)
         card_layout.addWidget(divider())
         card_layout.addLayout(footer)
@@ -1375,6 +1381,7 @@ class MainWindow(QMainWindow):
         root.addWidget(card, 1)
         self.setCentralWidget(central)
         self.overlay = DropOverlay(central)
+        self.toast = BuddyToast(central)
 
         self.flash_timer = QTimer(self, singleShot=True, interval=4000)
         self.flash_timer.timeout.connect(self.refresh)
@@ -1554,6 +1561,7 @@ class MainWindow(QMainWindow):
         super().resizeEvent(event)
         if self.overlay.isVisible():
             self.overlay.setGeometry(self.centralWidget().rect())
+        self.toast.place()
 
     # --- Ayarlar ----------------------------------------------------------------
 
@@ -1576,6 +1584,8 @@ class MainWindow(QMainWindow):
         self.theme_choice = choice
         self.settings.setValue("theme", choice)
         apply_theme(choice)
+        for row in self.all_dates():
+            row.render()
 
     # --- İşleme -----------------------------------------------------------------
 
@@ -1676,7 +1686,7 @@ class MainWindow(QMainWindow):
             return
 
         self.run_total, self.run_done, self.run_errors = len(jobs), 0, 0
-        self.work.start(len(jobs))
+        self.toast.say(BuddyToast.pep_talk(len(jobs)))
         self.worker = Worker(jobs)
         self.worker.progress.connect(lambda row, f: row.set_state(RUNNING, f))
         self.worker.job_finished.connect(lambda row, state, msg: row.set_state(state, 1.0, msg))
@@ -1691,11 +1701,18 @@ class MainWindow(QMainWindow):
         if state in (DONE, EXISTS, ERROR):
             self.run_done += state != ERROR
             self.run_errors += state == ERROR
-            self.work.update_count(self.run_done + self.run_errors, self.run_total)
+            if self.run_total >= 6 and self.run_done + self.run_errors == self.run_total // 2:
+                self.toast.say("Yarısı bitti, devam ediyorum! 🏃", "wave", 3000)
         self.refresh()
 
     def on_finished(self):
-        self.work.finish(self.run_done, self.run_errors, self.worker.stopped)
+        if self.worker.stopped:
+            self.toast.say("Durdurdunuz. Kalanlar sırada bekliyor.", "wave")
+        elif self.run_errors:
+            self.toast.say(f"{self.run_done} video hazır, {self.run_errors} tanesinde sorun çıktı. "
+                           "Kırmızı satırlara bakın.", "wave", 5000)
+        else:
+            self.toast.say("Hepsi hazır! 🎉" if self.run_done > 1 else "Hazır! 🎉", "ok")
         self.worker.deleteLater()
         self.worker = None
         for v in self.videos:
@@ -1855,7 +1872,7 @@ def run():
     apply_theme(window.theme_choice)
     # "Sistem" seçiliyken Windows/macOS teması değişirse uygulama da değişsin
     app.styleHints().colorSchemeChanged.connect(
-        lambda _: window.theme_choice == "system" and apply_theme("system"))
+        lambda _: window.theme_choice == "system" and window.set_theme("system"))
 
     splash = Splash()
     check = updater.UpdateCheck()

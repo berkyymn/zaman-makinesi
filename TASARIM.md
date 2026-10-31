@@ -40,9 +40,7 @@ ayrı bir çıktı üretir. İşler sırayla, tek tek işlenir. Çıktıda ses y
 │ (saat) 3 video · 5 çıktı  2 / 5 tamamlandı                    [⚙ Ayarlar] │
 │ [+ Video ekle] ☐ Yeni videolara son girilen tarihi yaz  [Bitenleri temizle] [Listeyi temizle] │
 ├──────────────────────────────────────────────────────────────────────────┤
-│ (Zaman Adam koşuyor) ( Kolları sıvadım, 5 video sırada! )  2 / 5 video tamamlandı │
-├──────────────────────────────────────────────────────────────────────────┤
-│ [kare] toplanti.mp4   [12.10.2026 14:30:00]  ✓ Tamamlandı · 42 sn sürdü     Göster │
+│ [kare] toplanti.mp4   [12.10.2026 14:30:00]  (okey veren adam) Tamamlandı · 42 sn sürdü  Göster │
 │        02:14 · 1080p  [13.10.2026 09:00:00]  (koşan adam) ███░░ %42 · 12 sn     │
 │        Kaldır         + Tarih ekle   ✕ İptal                                │
 │ [kare] sahne.mov      [31.02.2026 25:00:00]  Geçersiz tarih                 │
@@ -81,8 +79,8 @@ ayrı bir çıktı üretir. İşler sırayla, tek tek işlenir. Çıktıda ses y
 | Hazır | boş |
 | Sırada | gri "Sırada" |
 | İşleniyor | koşan Zaman Adam + mavi ilerleme çubuğu + "%X · 12 sn" (süre canlı sayılır) |
-| Tamamlandı | Zaman Adam ~2,5 sn sevinçle zıplayıp başparmağını kaldırır; sonra yeşil "✓ Tamamlandı · 42 sn sürdü" + **Göster** (en sağda) kalır |
-| Zaten vardı | gri "✓ Zaten vardı, atlandı" + **Göster** |
+| Tamamlandı | tik yok; Zaman Adam bir kez zıplayıp başparmağını kaldırır ve öyle kalır + yeşil "Tamamlandı · 42 sn sürdü" + **Göster** (en sağda) |
+| Zaten vardı | gri "Zaten vardı, atlandı" + **Göster** |
 | Hata | kırmızı ⚠ + düz Türkçe mesaj ("Diskte yer kalmadı", "Video bulunamadı…", "Video okunamadı…"); ayrıntı hata kaydına yazılır, bir sonraki çalıştırmada tekrar denenir |
 | (uyarı) | sarı "⚠ Gelecekte bir tarih, doğru mu?" — işi engellemez |
 
@@ -107,13 +105,14 @@ ayrı bir çıktı üretir. İşler sırayla, tek tek işlenir. Çıktıda ses y
 - Ana buton **Durdur** olur. Durdurulunca o anki iş kesilir (yarım dosya silinir),
   kalan işler Hazır'a döner.
 
-- Listenin üstünde **çalışma şeridi**: koşan Zaman Adam, konuşma balonu ve "3 / 12 video tamamlandı".
-  Balon iş sayısına göre konuşur (1: "Tek video mu? Çocuk oyuncağı!", 30+: "Derin bir nefes…");
-  yarıda ve son videoda mesaj değişir.
+- **Zaman Adam balonu**: sağ altta aşağıdan zıplayarak gelir, "dürtme" gibi hafifçe sallanır,
+  ~4 sn sonra kayıp gider (tıklanınca hemen kapanır). İşlem boyunca ekranda kalmaz.
+  Başlarken iş sayısına göre konuşur (1: "Tek video mu? Çocuk oyuncağı!", 30+: "Derin bir nefes…");
+  6+ videoda yarıda bir kez "Yarısı bitti" der.
 
 ### İş bitince
-- Şeritte Zaman Adam başparmağını kaldırır: "Hepsi hazır! 🎉" (hata/durdurma varsa ne olduğunu
-  söyler); şerit 7 sn sonra kapanır.
+- Balon tekrar gelir, Zaman Adam başparmağını kaldırır: "Hepsi hazır! 🎉" (hata/durdurma varsa
+  ne olduğunu söyler).
 - Üstte özet: "5 / 6 tamamlandı · 1 hata". Pencere arkadaysa görev çubuğunda yanıp söner.
 - Tamamlanan satırlar kilitlenir; tekrar işlenmez.
 - **Bitenleri temizle** (sadece biten varken görünür): tamamlananları listeden kaldırır,
