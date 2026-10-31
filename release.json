@@ -1,4 +1,4 @@
 {
   "min_supported": "1.0.4",
-  "notes": "Zaman Adam artık işiniz bitince başparmağını kaldırıyor ve videolar işlenirken size eşlik ediyor. Çıktı klasörü Ayarlar'a taşındı. Tarih iptal butonundaki hata düzeltildi."
+  "notes": "Zaman Adam artık işlem başlarken ve bitince birkaç saniyeliğine sağ altta beliriyor; biten videoların yanında başparmağını kaldırıyor."
 }
