@@ -8,6 +8,8 @@ Zaman damgası olmayan videolara, sizin girdiğiniz tarihten başlayıp akan bir
 2. İnen `ZamanMakinesi-Setup.exe` dosyasına çift tıklayın.
    Mavi bir **"Windows bilgisayarınızı korudu"** penceresi çıkarsa **Ek bilgi**'ye, sonra **Yine de çalıştır**'a tıklayın.
    (Uygulama ücretsiz olduğu için imzalı değil; bu uyarı bundan çıkar.)
+
+   ![Windows SmartScreen uyarısında önce “Ek bilgi”ye, sonra “Yine de çalıştır”a tıklayın](assets/kurulum-uyarisi.png)
 3. **İleri → Kur → Son**. Masaüstüne "Zaman Makinesi" kısayolu gelir.
 
 Yönetici izni gerekmez. Yeni sürüm çıktığında uygulama açılışta haber verir; tek tıkla güncellenir.
