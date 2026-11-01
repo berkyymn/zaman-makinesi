@@ -52,6 +52,12 @@ WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 # Video kalitesi: küçük sayı = daha kaliteli ama büyük dosya (17-23 arası önerilir)
 CRF = 23
 
+# Boyut tavanı: çıktının bit hızı ne girişin bit hızının %90'ını (SOURCE_RATE_SHARE) ne de "piksel başına bit"
+# sınırını aşar. Böylece çıktı girişten büyük olmaz; çok yüksek bit hızlı kaynaklarda da makul bir boyuta iner.
+SOURCE_RATE_SHARE = 0.90
+# 0.10 bit/piksel: 1080p30 ≈ 6,2 Mbit/sn, 1080p60 ≈ 12,4 Mbit/sn, 720p25 ≈ 2,3 Mbit/sn.
+MAX_BITS_PER_PIXEL = 0.10
+
 # Videoyu sıkıştıracak kodlayıcı. "auto" = bilgisayarda hangisi varsa en hızlısı
 # (NVIDIA / Intel / AMD grafik, yoksa işlemci). Elle seçmek için PROFILES'tan bir anahtar: "qsv", "cpu"...
 ENCODER = "auto"
@@ -199,10 +205,11 @@ FAMILIES = {
     "amf": "AMD grafik",
     "cpu": "İşlemci",
 }
-_NV = ["-c:v", "h264_nvenc", "-rc", "vbr", "-cq", str(CRF), "-b:v", "0", "-pix_fmt", "yuv420p"]
-_QSV = ["-c:v", "h264_qsv", "-global_quality", str(CRF), "-pix_fmt", "nv12"]
-_AMF = ["-c:v", "h264_amf", "-rc", "cqp", "-qp_i", str(CRF), "-qp_p", str(CRF), "-pix_fmt", "nv12"]
-_X264 = ["-c:v", "libx264", "-preset", "veryfast", "-crf", str(CRF), "-pix_fmt", "yuv420p"]
+# Hız kontrolü (rate_args) ayrıca eklenir: her videonun kendi bit hızı tavanına göre.
+_NV = ["-c:v", "h264_nvenc", "-pix_fmt", "yuv420p"]
+_QSV = ["-c:v", "h264_qsv", "-pix_fmt", "nv12"]
+_AMF = ["-c:v", "h264_amf", "-pix_fmt", "nv12"]
+_X264 = ["-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p"]
 PROFILES = {
     "nvenc":      ("nvenc", [*_NV, "-preset", "p4"], True),
     "nvenc_fast": ("nvenc", [*_NV, "-preset", "p1"], True),
@@ -214,6 +221,27 @@ PROFILES = {
     "cpu":        ("cpu", _X264, False),
     "cpu_hwdec":  ("cpu", _X264, True),  # zayıf işlemcide videoyu grafik birimi çözsün
 }
+
+def rate_args(family, kbps):
+    """Bit hızı tavanı kbps olacak şekilde hız kontrolü.
+    NVENC ve işlemci: kalite hedefi (CRF 23) + tavan; kolay görüntüde tavanın altında kalır.
+    Quick Sync ve AMD: tavanı hedefleyen değişken bit hızı (kalite hedefiyle tavan birlikte kullanılamıyor)."""
+    cap = ["-maxrate", f"{kbps}k", "-bufsize", f"{2 * kbps}k"]
+    if family == "nvenc":
+        return ["-rc", "vbr", "-cq", str(CRF), "-b:v", "0", *cap]
+    if family == "qsv":
+        return ["-b:v", f"{kbps}k", *cap]
+    if family == "amf":
+        return ["-rc", "vbr_peak", "-b:v", f"{kbps}k", *cap]
+    return ["-crf", str(CRF), *cap]
+
+
+def target_kbps(info):
+    # Çıktının bit hızı tavanı: girişin bit hızı ve piksel başına bit sınırından küçük olanı
+    ceiling = info["width"] * info["height"] * max(info["fps"] or 30, 1) * MAX_BITS_PER_PIXEL / 1000
+    source = info["bitrate"] * SOURCE_RATE_SHARE if info.get("bitrate") else ceiling
+    return max(int(min(source, ceiling)), 300)
+
 
 _encoder = None  # kullanılan ayar (PROFILES anahtarı)
 _encoder_lock = threading.Lock()
@@ -234,7 +262,8 @@ def short_name(key):
 def encoder_works(key):
     # Bir saniyelik boş görüntüyü sıkıştırmayı dener; sürücüsü olmayan kart burada elenir
     cmd = [find_ffmpeg(), "-hide_banner", "-loglevel", "error", "-f", "lavfi",
-           "-i", "color=black:s=1280x720:r=30:d=1", "-frames:v", "5", *PROFILES[key][1], "-f", "null", "-"]
+           "-i", "color=black:s=1280x720:r=30:d=1", "-frames:v", "5", *PROFILES[key][1],
+           *rate_args(PROFILES[key][0], 3000), "-f", "null", "-"]
     try:
         return subprocess.run(cmd, capture_output=True, timeout=20, creationflags=NO_WINDOW).returncode == 0
     except (OSError, subprocess.TimeoutExpired):
@@ -261,8 +290,10 @@ def pick_encoder():
 #    hazırlık süresi hariç (1. sürüm kısa/kolay denemede işlemciyi turbo sayesinde hızlı sanıyordu).
 # 3: dosya boyutu da ölçülür; varsayılandan belirgin büyük dosya üreten ayar elenir (v2, i5-1135G7'de
 #    qsv_lp'yi seçti: %20 daha hızlı ama 400 MB'lık girişten 1 GB çıktı).
-TUNE_VERSION = 3
+# 4: çıktıya bit hızı tavanı (girişten büyük olmasın) ve görüntü kalitesi (SSIM) kuralı.
+TUNE_VERSION = 4
 TUNE_SIZE_TOLERANCE = 0.10  # bir ayar, ailesinin varsayılanından en fazla %10 büyük dosya üretebilir
+TUNE_QUALITY_TOLERANCE = 0.005  # görüntü benzerliği (SSIM) varsayılandan en fazla bu kadar düşük olabilir
 
 # Ölçüm süre sınırları (saniye). Bir ayar takılırsa ya da bilgisayar çok yavaşsa ölçüm bunları aşmaz;
 # toplam süre dolarsa güvenli varsayılan ayar seçilir.
@@ -294,6 +325,21 @@ def load_tuning(cache_file, families):
     return True
 
 
+def ssim(reference, encoded, timeout=None):
+    """İki videonun görüntü benzerliği (SSIM, 1 = aynı). Hız için her 6. kare, yarı çözünürlükte karşılaştırılır.
+    Saat yazısı her adayda aynı yerde olduğu için karşılaştırmayı adaylar arasında eşit etkiler."""
+    pick = "select='not(mod(n\\,6))',scale=960:540,setpts=N/TB"
+    cmd = [find_ffmpeg(), "-hide_banner", "-nostats", "-i", str(encoded), "-i", str(reference), "-lavfi",
+           f"[0:v]{pick}[a];[1:v]{pick}[b];[a][b]ssim", "-f", "null", "-"]
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                             timeout=timeout, creationflags=NO_WINDOW).stderr
+    except (OSError, subprocess.SubprocessError):
+        return None
+    m = re.search(r"All:([\d.]+)", out)
+    return float(m.group(1)) if m else None
+
+
 def tune_candidates(families):
     return [k for k, (fam, _, _) in PROFILES.items() if fam in families]
 
@@ -313,8 +359,9 @@ def tune(cache_file, families, on_step=None, should_stop=None):
       güvenli varsayılan ayar (pick_encoder) seçilip kaydedilir.
     on_step(sıra, toplam, ayar): her denemeden önce çağrılır.
     should_stop(): True dönerse (uygulama kapanıyor) hiçbir şey kaydedilmeden çıkılır.
-    - Dosya boyutu da ölçülür: ailesinin varsayılan ayarından TUNE_SIZE_TOLERANCE'tan fazla büyük dosya
-      üreten ayar, ne kadar hızlı olursa olsun seçilmez.
+    - Dosya boyutu ve görüntü benzerliği (SSIM) de ölçülür: varsayılan ayarlardan TUNE_SIZE_TOLERANCE'tan
+      fazla büyük dosya ya da TUNE_QUALITY_TOLERANCE'tan fazla düşük benzerlik üreten ayar, ne kadar hızlı
+      olursa olsun seçilmez.
     Döner: ({ayar: {"speed": gerçek zamanın kaç katı, "size": bayt, "ok": boyut kuralını geçti mi}},
             süre_aşıldı_mı) ya da kapatıldıysa (None, False).
     """
@@ -336,6 +383,7 @@ def tune(cache_file, families, on_step=None, should_stop=None):
         except (subprocess.SubprocessError, OSError):
             timed_out = True
         start = datetime(2026, 1, 1)
+        kbps = target_kbps({"width": 1920, "height": 1080, "fps": 30, "bitrate": None})
 
         def measure(candidates):
             nonlocal timed_out
@@ -353,14 +401,16 @@ def tune(cache_file, families, on_step=None, should_stop=None):
                 try:
                     encode(sample, out, start, seconds, key, None,
                            lambda f: marks.append((f, time.perf_counter())),
-                           lambda: stop() or out_of_time(), timeout=limit)
+                           lambda: stop() or out_of_time(), timeout=limit, kbps=kbps)
                 except (RuntimeError, Cancelled):
                     continue
                 end = time.perf_counter()
                 warm = next(((f, t) for f, t in marks if f >= TUNE_WARMUP), None)
                 if warm and warm[0] < 0.95 and end > warm[1] and out.exists():
+                    quality = ssim(sample, out, timeout=max(deadline - time.monotonic(), 1))
                     results[key] = {"speed": round(seconds * (1 - warm[0]) / (end - warm[1]), 2),
-                                    "size": out.stat().st_size}
+                                    "size": out.stat().st_size,
+                                    "ssim": round(quality, 4) if quality is not None else None}
 
         # Önce grafik birimleri; hiçbiri yoksa ya da hiçbiri çalışmadıysa işlemci
         if gpu:
@@ -376,8 +426,12 @@ def tune(cache_file, families, on_step=None, should_stop=None):
         # cpu) en küçük çıktısı ölçüttür; ondan TUNE_SIZE_TOLERANCE'tan fazla büyük dosya üreten ayar elenir.
         defaults = [results[k]["size"] for k in results if k in FAMILIES]
         limit_size = min(defaults or [r["size"] for r in results.values()]) * (1 + TUNE_SIZE_TOLERANCE)
+        # Kalite kuralı: hız, görüntüyü bozmanın bedeli de olamaz. Ölçülen varsayılanların en iyi benzerliğinden
+        # TUNE_QUALITY_TOLERANCE'tan fazla düşük olan ayar elenir (ölçülemeyen benzerlik kuralı atlar).
+        default_q = [results[k]["ssim"] for k in results if k in FAMILIES and results[k].get("ssim") is not None]
+        limit_q = max(default_q) - TUNE_QUALITY_TOLERANCE if default_q else None
         for r in results.values():
-            r["ok"] = r["size"] <= limit_size
+            r["ok"] = r["size"] <= limit_size and (limit_q is None or r.get("ssim") is None or r["ssim"] >= limit_q)
     eligible = [k for k in sorted(results, key=candidates.index) if results[k]["ok"]]
     if timed_out or not eligible:
         # Süre doldu (ya da uygun ayar yok): güvenli varsayılanla çalışılır
@@ -410,9 +464,12 @@ def video_info(src):
         raise RuntimeError("video açılamadı")
     h, mnt, sec = m.groups()
     fps = re.search(r"([\d.]+) fps", out)
+    # Önce video akışının kendi bit hızı, yoksa dosyanın toplam bit hızı (kb/s)
+    line = out[video.start():].split("\n", 1)[0]
+    rate = re.search(r"(\d+) kb/s", line) or re.search(r"bitrate: (\d+) kb/s", out)
     return {"duration": int(h) * 3600 + int(mnt) * 60 + float(sec), "codec": video.group(1),
             "width": int(video.group(2)), "height": int(video.group(3)),
-            "fps": round(float(fps.group(1))) if fps else 0}
+            "fps": round(float(fps.group(1))) if fps else 0, "bitrate": int(rate.group(1)) if rate else None}
 
 
 def video_duration(src):
@@ -432,10 +489,11 @@ def drawtext_filter(start):
             f"x={MARGIN_LEFT + PADDING}:y={MARGIN_TOP + PADDING}")
 
 
-def encode(src, tmp, start, duration, profile, hw_decode, on_progress, should_stop, timeout=None):
+def encode(src, tmp, start, duration, profile, hw_decode, on_progress, should_stop, timeout=None, kbps=6000):
     # hw_decode None ise ayarın kendi tercihi kullanılır. timeout: bu kadar saniyede bitmezse ffmpeg kapatılır
-    # (sürücü takılıp hiç çıktı vermese bile).
-    _, args, prefers_hw = PROFILES[profile]
+    # (sürücü takılıp hiç çıktı vermese bile). kbps: çıktının bit hızı tavanı (target_kbps).
+    family, args, prefers_hw = PROFILES[profile]
+    args = [*args, *rate_args(family, kbps)]
     cmd = [find_ffmpeg(), "-y", "-hide_banner", "-loglevel", "error", "-nostats",
            "-progress", "pipe:1", "-stats_period", "0.25"]
     if prefers_hw if hw_decode is None else hw_decode:
@@ -479,7 +537,8 @@ def encode(src, tmp, start, duration, profile, hw_decode, on_progress, should_st
 def process(src, dst, start, on_progress=None, should_stop=None):
     # on_progress(oran): 0-1 arası ilerleme. should_stop(): True dönerse iş iptal edilir.
     # Hangi kodlayıcıyla yapıldığını döner ("qsv", "cpu"...).
-    duration = video_duration(src)
+    info = video_info(src)
+    duration, kbps = info["duration"], target_kbps(info)
 
     # Önce geçici dosyaya yazılır, bitince asıl adına çevrilir.
     # Böylece yarıda kesilen işlem "tamamlanmış" sanılıp atlanmaz.
@@ -493,7 +552,7 @@ def process(src, dst, start, on_progress=None, should_stop=None):
     try:
         for i, (prof, hw_decode) in enumerate(attempts):
             try:
-                encode(src, tmp, start, duration, prof, hw_decode, on_progress, should_stop)
+                encode(src, tmp, start, duration, prof, hw_decode, on_progress, should_stop, kbps=kbps)
                 tmp.replace(dst)
                 if not on_progress:
                     print()

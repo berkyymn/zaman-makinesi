@@ -21,12 +21,22 @@ def check(name, cond):
     print(("PASS " if cond else "FAIL ") + name, flush=True)
 
 
+QUALITY = {}  # ayar -> taklit SSIM (verilmezse 0.98)
+
+
+def fake_ssim(reference, encoded, timeout=None):
+    return QUALITY.get(Path(encoded).stem, 0.98)
+
+
+main.ssim = fake_ssim
+
+
 def fake_encoder(speeds, broken=(), sizes=None):
     """Her ayar, verilen "gerçek zamanın kaç katı" hızında ilerleme bildirir ve verilen boyutta dosya yazar.
     Bazıları hata verir."""
     called = []
 
-    def encode(src, tmp, start, duration, key, hw, on_progress, should_stop, timeout=None):
+    def encode(src, tmp, start, duration, key, hw, on_progress, should_stop, timeout=None, kbps=None):
         called.append(key)
         if key in broken:
             raise RuntimeError("bozuk")
@@ -74,6 +84,14 @@ main.encode, called = fake_encoder({"qsv": 40, "qsv_fast": 50, "qsv_lp": 60},
                                    sizes={"qsv": 1000, "qsv_fast": 1500, "qsv_lp": 2500})
 r, _ = main.tune(cache, ["cpu", "qsv"])
 check("hepsi büyükse varsayılanda kalınır", main._encoder == "qsv")
+
+# 3c) Kalite kuralı: aynı boyutta ama görüntüsü belirgin kötü olan hızlı ayar seçilmez
+QUALITY.update({"qsv": 0.985, "qsv_fast": 0.984, "qsv_lp": 0.970})
+main.encode, called = fake_encoder({"qsv": 40, "qsv_fast": 44, "qsv_lp": 60})
+r, _ = main.tune(cache, ["cpu", "qsv"])
+print("   ölçüm:", r)
+check("düşük kaliteli hızlı ayar elenir", r["qsv_lp"]["ok"] is False and main._encoder != "qsv_lp")
+QUALITY.clear()
 
 # 4) Grafik ayarlarının hepsi bozuksa işlemciye dönülür
 main.encode, called = fake_encoder({"cpu": 20, "cpu_hwdec": 10}, broken=("qsv", "qsv_fast", "qsv_lp"))

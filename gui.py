@@ -399,10 +399,12 @@ def system_info():
 
 
 def tune_table(results):
-    # "qsv 3.5x 21 MB, qsv_lp 4.4x 52 MB (büyük dosya, elendi)" — hızlıdan yavaşa
+    # "qsv 3.5x 21 MB SSIM 0.98, qsv_lp 4.4x 52 MB SSIM 0.97 (… elendi)" — hızlıdan yavaşa
     parts = []
     for key, r in sorted((results or {}).items(), key=lambda kv: -kv[1]["speed"]):
-        parts.append(f"{key} {r['speed']}x {r['size'] / 2**20:.1f} MB" + ("" if r.get("ok", True) else " (büyük dosya, elendi)"))
+        quality = f" SSIM {r['ssim']}" if r.get("ssim") else ""
+        parts.append(f"{key} {r['speed']}x {r['size'] / 2**20:.1f} MB{quality}"
+                     + ("" if r.get("ok", True) else " (büyük dosya ya da düşük kalite, elendi)"))
     return ", ".join(parts)
 
 
@@ -427,10 +429,15 @@ def diagnostics_report():
     lines.append(f"İşler (toplam {stats.get('total_jobs', 0)}, son {len(jobs)}):")
     for j in jobs[-STATS_LIMIT:]:
         speed = f"{j['speed']}x" if j.get("speed") else "-"
+        if j.get("took"):
+            speed = f"{duration_text(j['took'])} sürdü · {speed}"
         if j.get("size"):
             speed += f" · boyut {j['size']}x"
+        if j.get("kbps"):
+            speed += f" · tavan {j['kbps']} kb/s"
         extra = " · işlemciye düştü" if j.get("fallback") else ""
         video = (f"{j['res']} {j.get('fps') or '?'}fps {j.get('codec') or '?'} {duration_text(j.get('duration', 0))}"
+                 + (f" {j['source_kbps']} kb/s" if j.get("source_kbps") else "")
                  if j.get("codec") else "video bilgisi yok")
         lines.append(f"  {j.get('time', '')} · {video} · {j.get('profile', '?')} · {speed} · "
                      f"{j.get('result', '?')}{extra}")
@@ -1397,7 +1404,8 @@ class Worker(QThread):
                 info = {}
             # Teşhis için sadece teknik bilgi: dosya adı/klasör/tarih yok
             record = {"time": f"{datetime.now():%d.%m %H:%M}", "res": f"{info.get('width', '?')}x{info.get('height', '?')}",
-                      "fps": info.get("fps"), "codec": info.get("codec"), "duration": round(info.get("duration", 0))}
+                      "fps": info.get("fps"), "codec": info.get("codec"), "duration": round(info.get("duration", 0)),
+                      "source_kbps": info.get("bitrate")}
             try:
                 used = main.process(src, dst, start,
                              on_progress=lambda f, row=row: self.progress.emit(row, f),
@@ -1410,7 +1418,8 @@ class Worker(QThread):
                 except OSError:
                     size = None
                 log.info("Bitti (%s, %sx gerçek zaman, boyut %sx girişin, %s): %s", took, speed, size, used, dst)
-                record_job({**record, "profile": used, "speed": speed, "size": size, "result": "tamam",
+                record_job({**record, "profile": used, "speed": speed, "size": size, "took": round(elapsed),
+                            "kbps": main.target_kbps(info) if info else None, "result": "tamam",
                             "fallback": used != planned})
                 self.job_finished.emit(row, DONE, took)
             except main.Cancelled:

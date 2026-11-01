@@ -30,6 +30,13 @@ Windows masaüstü uygulaması.
   kısaltmadır (ffmpeg üretir). Saat, videonun her saniyesinde bir artar.
 - Görünüm (font, boyut, konum, renk, kalite) `main.py`'nin başındaki **AYARLAR** bölümündedir.
   Varsayılan: Courier New Bold 30 px, beyaz yazı, siyah kutu, sol 24 / üst 60 px, CRF 23.
+- **Çıktı girişten büyük olmaz (boyut tavanı).** Her videonun bit hızı okunur; çıktının bit hızı tavanı
+  `min(giriş × SOURCE_RATE_SHARE (%90), genişlik × yükseklik × fps × MAX_BITS_PER_PIXEL (0,10))`'dur
+  (en az 300 kb/s). Böylece verimli sıkıştırılmış kaynaklarda çıktı girişten küçük, çok yüksek bit hızlı
+  kamera kayıtlarında makul boyutta olur (1080p30 ≈ 6,2 Mbit/sn, 1080p60 ≈ 12,4 Mbit/sn tavanı).
+  NVENC ve işlemci: kalite hedefi (CRF/CQ 23) + tavan; Quick Sync ve AMD: tavanı hedefleyen değişken bit hızı.
+  Ölçüm (Mac, x264): 1080p60 5,2 Mbit girişte çıktı 0,92x, SSIM 0,986; 11,7 Mbit 1080p30 girişte 0,47x, SSIM 0,988.
+  Sebep: 1.0.12'de kalite hedefiyle 1080p60 5,2 Mbit'lik 400 MB giriş 756 MB (1,86x) çıkmıştı.
 
 ### Çıktılar ve dosyalama
 ```
@@ -187,6 +194,9 @@ Saklanan ayarlar (QSettings `ZamanMakinesi/ZamanMakinesi`): `theme`, `output_dir
   - Deneme videosu: `TUNE_SAMPLE_SECONDS` (20) sn'lik, kumlu (gerçek kameraya yakın) 1080p30.
   - Hız **hazırlık süresi hariç** ölçülür: videonun ilk `TUNE_WARMUP` (%20) kısmı sayılmaz; kalanının
     işlenme hızı "gerçek zamanın kaç katı" olarak karşılaştırılır (büyük = hızlı).
+  - **Kalite kuralı: hız, görüntüyü bozmanın bedeli olamaz.** Her adayın çıktısı deneme videosuyla
+    karşılaştırılır (SSIM, her 6. kare, yarım çözünürlük). Ölçülen varsayılan ayarların en iyi benzerliğinden
+    `TUNE_QUALITY_TOLERANCE` (0,005) fazla düşük olan ayar elenir.
   - **Boyut kuralı: hız, dosyayı büyütmenin bedeli olamaz.** Her ayarın ürettiği dosya boyutu da ölçülür.
     Ölçülen varsayılan ayarların (`nvenc`, `qsv`, `amf`, `cpu`) en küçük çıktısı ölçüttür; ondan
     `TUNE_SIZE_TOLERANCE` (%10) fazla büyük dosya üreten ayar, ne kadar hızlı olursa olsun **elenir**.
@@ -196,7 +206,7 @@ Saklanan ayarlar (QSettings `ZamanMakinesi/ZamanMakinesi`): `theme`, `output_dir
     **en az %10 daha hızlıysa** geçilir. Uygun ayar kalmazsa güvenli varsayılan kullanılır.
     Sonuç `hiz-olcumu.json`'a, ayrıntı hata kaydına yazılır
     (`Hız ölçümü: qsv_lp 4.4x 52.0 MB (büyük dosya, elendi), qsv_fast 3.9x 21.5 MB, qsv 3.5x 21.0 MB -> seçilen: qsv_fast`).
-  - Her biten işin gerçek hızı ve **çıktı/giriş boyut oranı** da kayda yazılır
+  - Her biten işin işlem süresi, gerçek hızı, **çıktı/giriş boyut oranı** ve bit hızı tavanı da kayda yazılır
     (`Bitti (3 dk 05 sn, 3.2x gerçek zaman, boyut 0.98x girişin, qsv): …`); ölçümün doğru seçip
     seçmediği buradan kontrol edilir.
 - **Ne zaman ölçülür** — sadece:
@@ -225,19 +235,23 @@ Saklanan ayarlar (QSettings `ZamanMakinesi/ZamanMakinesi`): `theme`, `output_dir
   | 1.0.7 | ffmpeg + Quick Sync (varsayılan) | 3 dk 05 sn | 3,2x |
   | 1.0.10 | TUNE v1 yanlışlıkla işlemci seçti | 4 dk 36 sn | 2,2x |
   | 1.0.11 | TUNE v2: `qsv_lp` (düşük güç) seçti | 2 dk 29 sn | 4,0x — ama dosya 400 MB → **1 GB** ❌ |
-  | 1.0.12 | TUNE v3: boyut kuralıyla seçim | (ölçülecek) | (ölçülecek) |
+  | 1.0.12 | TUNE v3: `qsv_fast` (boyut kuralı) | — | 3,5x — ama kalite hedefi yüzünden 400 MB → **756 MB** ❌ |
+  | 1.0.13 | Boyut tavanı + TUNE v4 (kalite kuralı) | (ölçülecek) | (ölçülecek) |
 - `TUNE_VERSION` geçmişi: **1** ilk ölçüm (6 sn, kolay içerik, işlemci dahil). **2** grafik birimi varsa
   işlemci yarıştırılmaz; 20 sn kumlu deneme, hazırlık hariç hız. **3** dosya boyutu kuralı (varsayılandan
-  %10'dan büyük dosya üreten ayar elenir).
+  %10'dan büyük dosya üreten ayar elenir). **4** çıktıya bit hızı tavanı (adaylar aynı tavanla yarışır) ve
+  görüntü kalitesi (SSIM) kuralı.
 - Grafik kodlayıcısı olmayan donanımlar işlemciye düşer: "F" ile biten Intel işlemciler, grafiksiz Ryzen,
-  GT 710/730/1030, RX 6400/6500 XT.
+  GT 710/730/1030, **MX serisi (MX150–MX550; i5-1135G7 + MX450'li bilgisayarda görüldü)**, RX 6400/6500 XT.
+  Bu kartlar listede görünür ama "Çalışan kodlayıcılar"da yer almaz; bu doğrudur.
 
 ## 6. Teşhis bilgisi (kullanıcıdan teknik veri)
 
 - **Sunucu yok, izin sorulmaz.** Sadece teknik veriler **yerelde** tutulur; kullanıcı istediğinde panoya kopyalar
   ve WhatsApp/e-posta ile geliştiriciye gönderir. Geliştirici bunları değerlendirip ölçüm kurallarını düzeltir.
-- **Toplanan:** her biten/hatalı iş için saat, video çözünürlüğü/fps/kodek/süresi, kullanılan ayar, gerçek hız
-  (x), çıktı/giriş boyut oranı, sonuç (tamam / hata türü), işlemciye düşüp düşmediği. Son 50 iş + toplam iş sayısı
+- **Toplanan:** her biten/hatalı iş için saat, video çözünürlüğü/fps/kodek/süresi/bit hızı, kullanılan ayar,
+  işlem süresi, gerçek hız (x), çıktı/giriş boyut oranı, bit hızı tavanı, sonuç (tamam / hata türü), işlemciye
+  düşüp düşmediği. Son 50 iş + toplam iş sayısı
   (`istatistik.json`). Rapor anında ayrıca işletim sistemi, işlemci, RAM, grafik birim(ler)i + sürücü sürümü
   (Windows'ta PowerShell `Win32_VideoController`) ve son hız ölçümü (`hiz-olcumu.json`) eklenir.
 - **Asla toplanmaz:** dosya/klasör adları, girilen tarihler, video içeriği, kullanıcı/bilgisayar adı.
@@ -254,7 +268,7 @@ Saklanan ayarlar (QSettings `ZamanMakinesi/ZamanMakinesi`): `theme`, `output_dir
   Hız ölçümü (v3): qsv_lp 4.4x 52.0 MB (büyük dosya, elendi), qsv_fast 3.9x 21.5 MB, qsv 3.5x 21.0 MB -> qsv_fast
   Şu an kullanılan: qsv_fast
   İşler (toplam 12, son 12):
-    01.11 15:50 · 1920x1080 30fps h264 10:00 · qsv_fast · 3.4x · boyut 0.98x · tamam
+    01.11 15:50 · 1920x1080 60fps h264 10 dk 11 sn 5200 kb/s · qsv_fast · 2 dk 51 sn sürdü · 3.5x · boyut 0.9x · tavan 4680 kb/s · tamam
   ```
 
 ## 7. Güncelleme
@@ -311,7 +325,9 @@ Her yayında **sırayla, eksiksiz**:
 3. **`TUNE_VERSION` kararı** (`main.py`): Şunlardan biri değiştiyse **artır**, yoksa **dokunma**:
    `PROFILES` (aday ekleme/çıkarma/ayar değişikliği), ölçüm yöntemi (`tune`: deneme videosu, seçim ve boyut
    kuralı, süre sınırları), işleme hattı (`encode`: drawtext, `-hwaccel`, filtreler). **Yeni bir aday ayar
-   eklerken boyutunu da ölçüp kontrol et; hız tek başına ölçüt değildir.** Artırılırsa sürüm notunda
+   eklerken boyutunu ve kalitesini de ölçüp kontrol et; hız tek başına ölçüt değildir. Hız kontrolünü
+   (`rate_args`, `target_kbps`) değiştirirsen gerçek bir düşük bit hızlı 1080p60 girişle çıktı/giriş oranının
+   1'in altında kaldığını doğrula.** Artırılırsa sürüm notunda
    "ilk açılışta hız ölçümü yapılacak" yazılır.
 4. **`version.py`:** sürüm artırıldı (`1.0.9 → 1.0.10`).
 5. **`release.json`:**
