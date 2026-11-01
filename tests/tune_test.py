@@ -21,8 +21,9 @@ def check(name, cond):
     print(("PASS " if cond else "FAIL ") + name, flush=True)
 
 
-def fake_encoder(speeds, broken=()):
-    """Her ayar, verilen "gerçek zamanın kaç katı" hızında ilerleme bildirir. Bazıları hata verir."""
+def fake_encoder(speeds, broken=(), sizes=None):
+    """Her ayar, verilen "gerçek zamanın kaç katı" hızında ilerleme bildirir ve verilen boyutta dosya yazar.
+    Bazıları hata verir."""
     called = []
 
     def encode(src, tmp, start, duration, key, hw, on_progress, should_stop, timeout=None):
@@ -33,7 +34,7 @@ def fake_encoder(speeds, broken=()):
         for i in range(1, 21):
             time.sleep(duration / speeds[key] / 20)
             on_progress(i / 20)
-        Path(tmp).write_bytes(b"x")
+        Path(tmp).write_bytes(b"x" * (sizes or {}).get(key, 1000))
 
     return encode, called
 
@@ -60,6 +61,19 @@ r, _ = main.tune(cache, ["cpu", "nvenc", "qsv"])
 check("birden çok grafik birimi yarıştırılır", any(k.startswith("nvenc") for k in called)
       and any(k.startswith("qsv") for k in called))
 check("en hızlı aile ve ayar seçilir", main._encoder == "nvenc_fast")
+
+# 3b) Boyut kuralı: çok daha büyük dosya üreten ayar, en hızlısı olsa da seçilmez
+#    (gerçek olay: i5-1135G7'de qsv_lp %20 hızlıydı ama 400 MB'tan 1 GB çıkardı)
+main.encode, called = fake_encoder({"qsv": 40, "qsv_fast": 50, "qsv_lp": 60},
+                                   sizes={"qsv": 1000, "qsv_fast": 1050, "qsv_lp": 2500})
+r, _ = main.tune(cache, ["cpu", "qsv"])
+print("   ölçüm:", r)
+check("büyük dosya üreten ayar elenir", r["qsv_lp"]["ok"] is False and main._encoder != "qsv_lp")
+check("benzer boyutta ve hızlı olan seçilir", main._encoder == "qsv_fast")
+main.encode, called = fake_encoder({"qsv": 40, "qsv_fast": 50, "qsv_lp": 60},
+                                   sizes={"qsv": 1000, "qsv_fast": 1500, "qsv_lp": 2500})
+r, _ = main.tune(cache, ["cpu", "qsv"])
+check("hepsi büyükse varsayılanda kalınır", main._encoder == "qsv")
 
 # 4) Grafik ayarlarının hepsi bozuksa işlemciye dönülür
 main.encode, called = fake_encoder({"cpu": 20, "cpu_hwdec": 10}, broken=("qsv", "qsv_fast", "qsv_lp"))

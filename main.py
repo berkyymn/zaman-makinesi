@@ -259,7 +259,10 @@ def pick_encoder():
 # Uygulamanın her sürümünde değil; metin değişikliği gibi güncellemeler yeniden ölçtürmez.
 # 1: ilk ölçüm. 2: grafik birimi varsa işlemciyle yarıştırılmaz; ölçüm daha uzun, kumlu videoyla ve
 #    hazırlık süresi hariç (1. sürüm kısa/kolay denemede işlemciyi turbo sayesinde hızlı sanıyordu).
-TUNE_VERSION = 2
+# 3: dosya boyutu da ölçülür; varsayılandan belirgin büyük dosya üreten ayar elenir (v2, i5-1135G7'de
+#    qsv_lp'yi seçti: %20 daha hızlı ama 400 MB'lık girişten 1 GB çıktı).
+TUNE_VERSION = 3
+TUNE_SIZE_TOLERANCE = 0.10  # bir ayar, ailesinin varsayılanından en fazla %10 büyük dosya üretebilir
 
 # Ölçüm süre sınırları (saniye). Bir ayar takılırsa ya da bilgisayar çok yavaşsa ölçüm bunları aşmaz;
 # toplam süre dolarsa güvenli varsayılan ayar seçilir.
@@ -310,7 +313,10 @@ def tune(cache_file, families, on_step=None, should_stop=None):
       güvenli varsayılan ayar (pick_encoder) seçilip kaydedilir.
     on_step(sıra, toplam, ayar): her denemeden önce çağrılır.
     should_stop(): True dönerse (uygulama kapanıyor) hiçbir şey kaydedilmeden çıkılır.
-    Döner: ({ayar: gerçek zamanın kaç katı}, süre_aşıldı_mı) ya da kapatıldıysa (None, False).
+    - Dosya boyutu da ölçülür: ailesinin varsayılan ayarından TUNE_SIZE_TOLERANCE'tan fazla büyük dosya
+      üreten ayar, ne kadar hızlı olursa olsun seçilmez.
+    Döner: ({ayar: {"speed": gerçek zamanın kaç katı, "size": bayt, "ok": boyut kuralını geçti mi}},
+            süre_aşıldı_mı) ya da kapatıldıysa (None, False).
     """
     global _encoder, tuned
     stop = should_stop or (lambda: False)
@@ -343,16 +349,18 @@ def tune(cache_file, families, on_step=None, should_stop=None):
                     on_step(i, len(candidates), key)
                 marks = []  # (ilerleme, zaman)
                 limit = min(TUNE_STEP_LIMIT, max(deadline - time.monotonic(), 1))
+                out = Path(d) / f"{key}.mp4"
                 try:
-                    encode(sample, Path(d) / f"{key}.mp4", start, seconds, key, None,
+                    encode(sample, out, start, seconds, key, None,
                            lambda f: marks.append((f, time.perf_counter())),
                            lambda: stop() or out_of_time(), timeout=limit)
                 except (RuntimeError, Cancelled):
                     continue
                 end = time.perf_counter()
                 warm = next(((f, t) for f, t in marks if f >= TUNE_WARMUP), None)
-                if warm and warm[0] < 0.95 and end > warm[1]:
-                    results[key] = round(seconds * (1 - warm[0]) / (end - warm[1]), 2)
+                if warm and warm[0] < 0.95 and end > warm[1] and out.exists():
+                    results[key] = {"speed": round(seconds * (1 - warm[0]) / (end - warm[1]), 2),
+                                    "size": out.stat().st_size}
 
         # Önce grafik birimleri; hiçbiri yoksa ya da hiçbiri çalışmadıysa işlemci
         if gpu:
@@ -363,15 +371,22 @@ def tune(cache_file, families, on_step=None, should_stop=None):
         return None, False
 
     candidates = tune_candidates(families)
-    if timed_out or not results:
-        # Süre doldu: ölçmeye devam etmeden güvenli varsayılanla çalışılır
-        best, timed_out = pick_encoder(), True
+    if results:
+        # Boyut kuralı: hız, dosyayı büyütmenin bedeli olamaz. Ölçülen varsayılan ayarların (nvenc, qsv, amf,
+        # cpu) en küçük çıktısı ölçüttür; ondan TUNE_SIZE_TOLERANCE'tan fazla büyük dosya üreten ayar elenir.
+        defaults = [results[k]["size"] for k in results if k in FAMILIES]
+        limit_size = min(defaults or [r["size"] for r in results.values()]) * (1 + TUNE_SIZE_TOLERANCE)
+        for r in results.values():
+            r["ok"] = r["size"] <= limit_size
+    eligible = [k for k in sorted(results, key=candidates.index) if results[k]["ok"]]
+    if timed_out or not eligible:
+        # Süre doldu (ya da uygun ayar yok): güvenli varsayılanla çalışılır
+        best, timed_out = pick_encoder(), timed_out or not results
     else:
         # Aday sırası güvenliden hızlıya; daha az bilinen bir ayara ancak en az %10 daha hızlıysa geçilir
-        order = sorted(results, key=candidates.index)
-        best = order[0]
-        for key in order:
-            if results[key] > results[best] * 1.1:
+        best = eligible[0]
+        for key in eligible:
+            if results[key]["speed"] > results[best]["speed"] * 1.1:
                 best = key
     with _encoder_lock:
         _encoder, tuned = best, True

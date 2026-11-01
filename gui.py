@@ -398,6 +398,14 @@ def system_info():
     return info
 
 
+def tune_table(results):
+    # "qsv 3.5x 21 MB, qsv_lp 4.4x 52 MB (büyük dosya, elendi)" — hızlıdan yavaşa
+    parts = []
+    for key, r in sorted((results or {}).items(), key=lambda kv: -kv[1]["speed"]):
+        parts.append(f"{key} {r['speed']}x {r['size'] / 2**20:.1f} MB" + ("" if r.get("ok", True) else " (büyük dosya, elendi)"))
+    return ", ".join(parts)
+
+
 def diagnostics_report():
     """Geliştiriciye gönderilecek kısa, okunur teknik rapor."""
     info = system_info()
@@ -407,7 +415,7 @@ def diagnostics_report():
              f"Grafik: {' | '.join(info['gpus']) or '?'}"]
     try:
         tune = json.loads(tune_cache().read_text(encoding="utf-8"))
-        table = ", ".join(f"{k} {v}x" for k, v in sorted(tune.get("results", {}).items(), key=lambda kv: -kv[1]))
+        table = tune_table(tune.get("results"))
         lines += [f"Çalışan kodlayıcılar: {', '.join(tune.get('families', []))}",
                   f"Hız ölçümü (v{tune.get('tune_version')}): {table or '-'} -> {tune.get('profile')}"
                   + (" (süre doldu)" if tune.get("timed_out") else "")]
@@ -419,6 +427,8 @@ def diagnostics_report():
     lines.append(f"İşler (toplam {stats.get('total_jobs', 0)}, son {len(jobs)}):")
     for j in jobs[-STATS_LIMIT:]:
         speed = f"{j['speed']}x" if j.get("speed") else "-"
+        if j.get("size"):
+            speed += f" · boyut {j['size']}x"
         extra = " · işlemciye düştü" if j.get("fallback") else ""
         video = (f"{j['res']} {j.get('fps') or '?'}fps {j.get('codec') or '?'} {duration_text(j.get('duration', 0))}"
                  if j.get("codec") else "video bilgisi yok")
@@ -754,7 +764,7 @@ class TuneWorker(QThread):
     """Bu bilgisayar için en hızlı ayarı bulur. Daha önce ölçüldüyse hemen biter (tuning sinyali gelmez)."""
     tuning = Signal()                    # ölçüm başlıyor (ekran gösterilsin)
     step = Signal(int, int, str)         # sıra, toplam, ayar
-    done = Signal(object, bool)          # ({ayar: gerçek zamanın kaç katı} ya da None, süre aşıldı mı)
+    done = Signal(object, bool)          # ({ayar: {speed, size, ok}} ya da None, süre aşıldı mı)
 
     def __init__(self, force=False):
         super().__init__()
@@ -772,7 +782,7 @@ class TuneWorker(QThread):
             self.tuning.emit()
             results, timed_out = main.tune(tune_cache(), families, on_step=self.step.emit,
                                            should_stop=lambda: self.cancelled)
-            table = ", ".join(f"{k} {v}x" for k, v in sorted((results or {}).items(), key=lambda kv: -kv[1]))
+            table = tune_table(results)
             log.info("Hız ölçümü%s: %s -> seçilen: %s", " (süre doldu)" if timed_out else "",
                      table or "-", main._encoder)
             self.done.emit(results, timed_out)
@@ -1395,8 +1405,12 @@ class Worker(QThread):
                 elapsed = max(time.monotonic() - began, 0.1)
                 took = duration_text(max(round(elapsed), 1))
                 speed = round(info.get("duration", 0) / elapsed, 1)
-                log.info("Bitti (%s, %sx gerçek zaman, %s): %s", took, speed, used, dst)
-                record_job({**record, "profile": used, "speed": speed, "result": "tamam",
+                try:
+                    size = round(dst.stat().st_size / max(src.stat().st_size, 1), 2)  # çıktı / giriş
+                except OSError:
+                    size = None
+                log.info("Bitti (%s, %sx gerçek zaman, boyut %sx girişin, %s): %s", took, speed, size, used, dst)
+                record_job({**record, "profile": used, "speed": speed, "size": size, "result": "tamam",
                             "fallback": used != planned})
                 self.job_finished.emit(row, DONE, took)
             except main.Cancelled:
