@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import traceback
 from contextlib import contextmanager
@@ -174,6 +175,9 @@ def fade_in(widget, ms=280):
 def collapse_out(widget, ms=240):
     # Satırı soldurup boyunu sıfırlayarak kaldırır, sonra siler
     widget.setEnabled(False)
+    for child in widget.findChildren(QWidget):  # iç içe efektler Qt'de çizim hatası verir
+        if child.graphicsEffect():
+            child.setGraphicsEffect(None)
     effect = QGraphicsOpacityEffect(widget)
     widget.setGraphicsEffect(effect)
     group = QParallelAnimationGroup(widget)
@@ -1062,11 +1066,11 @@ class Worker(QThread):
             log.info("İşleniyor: %s -> %s", src, dst)
             began = time.monotonic()
             try:
-                main.process(src, dst, start,
+                used = main.process(src, dst, start,
                              on_progress=lambda f, row=row: self.progress.emit(row, f),
                              should_stop=lambda: self.stopped)
                 took = duration_text(max(round(time.monotonic() - began), 1))
-                log.info("Bitti (%s): %s", took, dst)
+                log.info("Bitti (%s, %s): %s", took, main.ENCODERS[used][0], dst)
                 self.job_finished.emit(row, DONE, took)
             except main.Cancelled:
                 log.info("Durduruldu: %s", src)
@@ -1178,6 +1182,12 @@ class SettingsDialog(QDialog):
         self.example = QLabel()
         self.example.setObjectName("small")
 
+        # Hız: videoyu sıkıştıran donanım
+        self.speed = QLabel()
+        self.speed_timer = QTimer(self, interval=500)  # açılıştaki deneme sürüyorsa bitince yaz
+        self.speed_timer.timeout.connect(self._show_speed)
+        self._show_speed()
+
         # Yardım
         self.update_btn = QPushButton("Güncellemeleri denetle")
         self.update_btn.clicked.connect(self._check_updates)
@@ -1210,6 +1220,7 @@ class SettingsDialog(QDialog):
         layout.addWidget(card("Görünüm", "Sistem seçiliyse bilgisayarınızın açık/koyu ayarına uyar.", themes))
         layout.addWidget(card("Çıktılar", "İşlenen videolar bu klasöre kaydedilir.",
                               out_row, self.monthly, self.explain, self.example))
+        layout.addWidget(card("Hız", "Videolar, bilgisayarınızdaki en hızlı donanımla işlenir.", self.speed))
         layout.addWidget(card("Yardım", "Bir sorun olursa hata kaydını geliştiriciye gönderebilirsiniz.",
                               help_row, self.update_status))
         layout.addSpacing(4)
@@ -1234,6 +1245,18 @@ class SettingsDialog(QDialog):
     def _set_monthly(self, on):
         self.main.set_monthly(on)
         self._refresh()
+
+    def _show_speed(self):
+        key = main._encoder
+        if key is None:
+            self.speed.setText("Kullanılacak donanım belirleniyor…")
+            self.speed_timer.start()
+        elif key == "cpu":
+            self.speed.setText("⚙️  İşlemci kullanılıyor (grafik hızlandırma bulunamadı).")
+            self.speed_timer.stop()
+        else:
+            self.speed.setText(f"⚡  {main.ENCODERS[key][0]} kullanılıyor (hızlı)")
+            self.speed_timer.stop()
 
     def _open_log(self):
         path = log_path()
@@ -1886,9 +1909,9 @@ def self_test():
             assert frame is not None, "video okunamadı"
             start = datetime(2026, 1, 1, 12, 0, 0)
             dst = output_path(Path(d), src, start)
-            main.process(src, dst, start, on_progress=lambda f: None)
+            used = main.process(src, dst, start, on_progress=lambda f: None)
             assert dst.stat().st_size > 0, "çıktı boş"
-        log.write_text(f"OK {info}\n", encoding="utf-8")
+        log.write_text(f"OK {info} · kodlayıcı: {used}\n", encoding="utf-8")
         return 0
     except Exception:
         log.write_text(traceback.format_exc(), encoding="utf-8")
@@ -1905,6 +1928,8 @@ def run():
     app.setStyle("Fusion")
     sys.excepthook = show_error
     setup_log()
+    threading.Thread(target=lambda: log.info("Kodlayıcı: %s", main.ENCODERS[main.pick_encoder()][0]),
+                     daemon=True).start()
 
     window = MainWindow()
     apply_theme(window.theme_choice)

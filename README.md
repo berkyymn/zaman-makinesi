@@ -36,6 +36,7 @@ Klasörü, aylık düzeni ve açık/koyu temayı **⚙ Ayarlar**'dan değiştire
 uv run gui.py                 # arayüz
 uv run main.py [video.mp4]    # komut satırı: girdi/ klasöründekileri cikti/'ya işler
 uv run onizleme.py            # komut satırı: saatin nasıl duracağını tek karede gösterir
+QT_QPA_PLATFORM=offscreen uv run python tests/gui_test.py   # arayüz testi
 ```
 
 Yazı boyutu, konum, renk ve kalite ayarları `main.py`'nin başındaki **AYARLAR** bölümündedir;

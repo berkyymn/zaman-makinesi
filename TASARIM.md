@@ -142,6 +142,21 @@ ayrı bir çıktı üretir. İşler sırayla, tek tek işlenir. Çıktıda ses y
 - **Zaman Adam**: uygulama simgesinin kollu bacaklı, yüzlü hali. İşlenen satırda koşar, ayarlarda el sallar,
   arada bir göz kırpar. **Göster** butonu satırın en sağında durur.
 
+## Hız (video kodlama)
+
+- Saat, ffmpeg'in kendi `drawtext` filtresiyle basılır; okuma + yazı + sıkıştırma tek ffmpeg sürecinde
+  yapılır (Python'da kare kare işlem ve kare başına 6 MB'lık aktarım yok).
+- Kodlayıcı otomatik seçilir (`main.ENCODER = "auto"`): açılışta arka planda 1 sn'lik denemeyle sırayla
+  **NVIDIA (NVENC) → Intel (Quick Sync) → AMD (AMF)** yoklanır, ilk çalışan kullanılır; hiçbiri yoksa
+  **işlemci (x264 veryfast)**. Seçim Ayarlar'daki "Hız" kartında ve hata kaydında görünür.
+- Yedek: grafik birimi bir videoda hata verirse o video kendiliğinden işlemciyle baştan yapılır.
+  İşlemci kodlayıcısı uygulamanın içinde geldiği için her bilgisayarda çalışır.
+- Ölçüm (Mac, 60 sn 1080p30, 2 çekirdekle sınırlı): x264 medium 21,8 sn → veryfast 6,2 sn (3,5x).
+  Ofis bilgisayarında 10 dk'lık 1080p video için tahmin: işlemci ~3 dk, Intel/AMD grafik ~1–2 dk,
+  NVIDIA ~1 dk. Kodlayıcısı olmayan kartlar: GT 710/730/1030, RX 6400/6500 XT; "F" Intel işlemcilerde
+  grafik birimi yoktur.
+- `ZM_ENCODER=cpu` (ya da `nvenc`/`qsv`/`amf`) ortam değişkeni seçimi zorlar (deneme için).
+
 ## Güncelleme
 
 - Açılışta `version.json` okunur (en son sürümün release'inden, 3 sn zaman aşımı):
@@ -184,7 +199,8 @@ ayrı bir çıktı üretir. İşler sırayla, tek tek işlenir. Çıktıda ses y
 
 | Dosya | Görev |
 |---|---|
-| `main.py` | Çekirdek + CLI (aynen kalır; ilerleme/iptal parametreleri eklenir, font yolu OS'a göre) |
+| `main.py` | Çekirdek + CLI: tek ffmpeg süreci (drawtext), kodlayıcı seçimi ve yedek, ilerleme/iptal |
+| `tests/gui_test.py` | Arayüzün uçtan uca testi (ekransız, deneme videolarını kendisi üretir) |
 | `onizleme.py` | CLI önizleme (aynen kalır; Windows'ta da dosyayı açar) |
 | `gui.py` | PySide6 arayüz, uygulamanın giriş noktası |
 | `updater.py` | Sürüm kontrolü, indirme, kurulumu başlatma |

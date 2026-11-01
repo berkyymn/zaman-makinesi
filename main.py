@@ -45,11 +45,16 @@ BG_COLOR = (0, 0, 0)              # siyah
 # Kutunun opaklığı: 1 = tam dolu, 0.5 = yarı saydam, 0 = kutu yok
 BG_OPACITY = 1.0
 
-# Gün kısaltmaları (Pazartesiden başlayarak)
+# Gün kısaltmaları (Pazartesiden başlayarak). Videoya basılan yazıyı ffmpeg ürettiği için
+# videoda her zaman bu İngilizce kısaltmalar çıkar; bu liste önizleme içindir.
 WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 # Video kalitesi: küçük sayı = daha kaliteli ama büyük dosya (17-23 arası önerilir)
 CRF = 23
+
+# Videoyu sıkıştıracak kodlayıcı. "auto" = bilgisayarda hangisi varsa en hızlısı
+# (NVIDIA / Intel / AMD grafik, yoksa işlemci). Elle seçmek için: "nvenc", "qsv", "amf", "cpu"
+ENCODER = "auto"
 
 # Klasörler (proje klasörüne göre)
 INPUT_DIR = "girdi"
@@ -61,8 +66,12 @@ OVERWRITE = False
 # =============================================================================
 
 import difflib
+import os
+import re
 import shutil
 import subprocess
+import tempfile
+import threading
 import unicodedata
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -179,67 +188,131 @@ def check_start_times(input_dir, videos):
         parse_time(START_TIME)
 
 
+# Denenecek kodlayıcılar, en hızlıdan yavaşa: (ekranda görünen ad, ffmpeg ayarları).
+# Ekran kartı ya da işlemcinin içindeki grafik birimi, videoyu işlemcinin kendisinden çok daha hızlı sıkıştırır.
+ENCODERS = {
+    "nvenc": ("NVIDIA ekran kartı", ["-c:v", "h264_nvenc", "-preset", "p4", "-rc", "vbr", "-cq", str(CRF),
+                                     "-b:v", "0", "-pix_fmt", "yuv420p"]),
+    "qsv": ("Intel grafik (Quick Sync)", ["-c:v", "h264_qsv", "-preset", "medium", "-global_quality", str(CRF),
+                                          "-pix_fmt", "nv12"]),
+    "amf": ("AMD grafik", ["-c:v", "h264_amf", "-quality", "balanced", "-rc", "cqp",
+                           "-qp_i", str(CRF), "-qp_p", str(CRF), "-pix_fmt", "nv12"]),
+    "cpu": ("İşlemci", ["-c:v", "libx264", "-preset", "veryfast", "-crf", str(CRF), "-pix_fmt", "yuv420p"]),
+}
+
+_encoder = None
+_encoder_lock = threading.Lock()
+
+
+def encoder_works(key):
+    # Bir saniyelik boş görüntüyü sıkıştırmayı dener; sürücüsü olmayan kart burada elenir
+    cmd = [find_ffmpeg(), "-hide_banner", "-loglevel", "error", "-f", "lavfi",
+           "-i", "color=black:s=1280x720:r=30:d=1", "-frames:v", "5", *ENCODERS[key][1], "-f", "null", "-"]
+    try:
+        return subprocess.run(cmd, capture_output=True, timeout=20, creationflags=NO_WINDOW).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def pick_encoder():
+    # Bilgisayardaki en hızlı çalışan kodlayıcı; bir kez denenir, sonra hatırlanır
+    global _encoder
+    with _encoder_lock:
+        if _encoder is None:
+            choice = os.environ.get("ZM_ENCODER", ENCODER)
+            if choice != "auto":
+                _encoder = choice
+            else:
+                _encoder = next((k for k in ("nvenc", "qsv", "amf") if encoder_works(k)), "cpu")
+        return _encoder
+
+
+def video_duration(src):
+    out = subprocess.run([find_ffmpeg(), "-hide_banner", "-i", str(src)],
+                         capture_output=True, text=True, encoding="utf-8", errors="replace",
+                         creationflags=NO_WINDOW).stderr
+    m = re.search(r"Duration: (\d+):(\d+):(\d+\.?\d*)", out)
+    if not m or "Video:" not in out:
+        raise RuntimeError("video açılamadı")
+    h, mnt, sec = m.groups()
+    return int(h) * 3600 + int(mnt) * 60 + float(sec)
+
+
+def drawtext_filter(start):
+    # Saati ffmpeg'in kendisi basar: her kare için "başlangıç + videodaki saniye".
+    # gmtime kullanıldığı için başlangıç, saat dilimi hesabı yapılmadan olduğu gibi verilir.
+    epoch = int((start - datetime(1970, 1, 1)).total_seconds())
+    font = Path(FONT_PATH).as_posix().replace(":", "\\:")
+    text = f"%{{pts\\:gmtime\\:{epoch}\\:%d-%m-%Y %a %H\\\\\\:%M\\\\\\:%S}}"
+    color = "0x%02x%02x%02x" % TEXT_COLOR
+    box = "0x%02x%02x%02x@%.2f" % (*BG_COLOR, BG_OPACITY)
+    return (f"drawtext=fontfile='{font}':text='{text}':fontsize={FONT_SIZE}:fontcolor={color}:"
+            f"box={1 if BG_OPACITY > 0 else 0}:boxcolor={box}:boxborderw={PADDING}:"
+            f"x={MARGIN_LEFT + PADDING}:y={MARGIN_TOP + PADDING}")
+
+
+def encode(src, tmp, start, duration, encoder, hw_decode, on_progress, should_stop):
+    cmd = [find_ffmpeg(), "-y", "-hide_banner", "-loglevel", "error", "-nostats",
+           "-progress", "pipe:1", "-stats_period", "0.5"]
+    if hw_decode:
+        cmd += ["-hwaccel", "auto"]  # kodlamayı da mümkünse grafik birimi çözsün
+    cmd += ["-i", str(src), "-map", "0:v:0", "-vf", drawtext_filter(start), *ENCODERS[encoder][1],
+            "-an", "-movflags", "+faststart", str(tmp)]
+    with tempfile.TemporaryFile() as err:
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=err, creationflags=NO_WINDOW,
+                                text=True, encoding="utf-8", errors="replace")
+        try:
+            for line in proc.stdout:
+                if should_stop and should_stop():
+                    proc.terminate()
+                    proc.wait()
+                    raise Cancelled()
+                if line.startswith("out_time_us=") and duration > 0:
+                    us = line.split("=", 1)[1].strip()
+                    if us.lstrip("-").isdigit():
+                        fraction = min(max(int(us) / 1e6 / duration, 0.0), 1.0)
+                        if on_progress:
+                            on_progress(fraction)
+                        else:
+                            print(f"\r  %{int(fraction * 100)}", end="", flush=True)
+            code = proc.wait()
+        except BaseException:
+            proc.kill()
+            proc.wait()
+            raise
+        if code != 0:
+            err.seek(0)
+            detail = err.read().decode("utf-8", "replace").strip().splitlines()[-3:]
+            raise RuntimeError("ffmpeg hata verdi: " + " | ".join(detail))
+
+
 def process(src, dst, start, on_progress=None, should_stop=None):
     # on_progress(oran): 0-1 arası ilerleme. should_stop(): True dönerse iş iptal edilir.
-    cap = open_video(src)
-    if not cap.isOpened():
-        raise RuntimeError("video açılamadı")
-    fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
-    w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    # Hangi kodlayıcıyla yapıldığını döner ("qsv", "cpu"...).
+    duration = video_duration(src)
 
     # Önce geçici dosyaya yazılır, bitince asıl adına çevrilir.
     # Böylece yarıda kesilen işlem "tamamlanmış" sanılıp atlanmaz.
     dst.parent.mkdir(parents=True, exist_ok=True)
     tmp = dst.with_name(dst.stem + ".part.mp4")
 
-    renderer = TextRenderer()
-    proc = subprocess.Popen([
-        find_ffmpeg(), "-y", "-loglevel", "error",
-        "-f", "rawvideo", "-pix_fmt", "bgr24", "-s", f"{w}x{h}", "-r", str(fps), "-i", "-",
-        "-c:v", "libx264", "-preset", "medium", "-crf", str(CRF), "-pix_fmt", "yuv420p",
-        "-an", "-movflags", "+faststart", str(tmp),
-    ], stdin=subprocess.PIPE, creationflags=NO_WINDOW)
-
-    idx = 0
-    ok_done = False
+    # Önce en hızlı yol denenir; grafik birimi bu videoda sorun çıkarırsa işlemciyle baştan yapılır
+    # (İşlemci yolunda donanımla çözme kullanılmaz; ölçümde yavaşlattı.)
+    encoder = pick_encoder()
+    attempts = [("cpu", False)] if encoder == "cpu" else [(encoder, True), ("cpu", False)]
     try:
-        while True:
-            if should_stop and should_stop():
-                raise Cancelled()
-            ok, frame = cap.read()
-            if not ok:
-                break
-            if frame.shape[1] != w or frame.shape[0] != h:
-                frame = cv2.resize(frame, (w, h))
-
-            ms = cap.get(cv2.CAP_PROP_POS_MSEC)
-            elapsed = ms / 1000.0 if ms > 0 or idx == 0 else idx / fps
-            renderer.draw(frame, format_ts(start + timedelta(seconds=int(elapsed))), MARGIN_LEFT, MARGIN_TOP)
-
-            proc.stdin.write(frame.tobytes())
-            idx += 1
-            if on_progress:
-                if idx % 10 == 0 and total:
-                    on_progress(min(idx / total, 1.0))
-            elif idx % 100 == 0 and total:
-                print(f"\r  {idx}/{total} kare (%{min(idx * 100 // total, 100)})", end="", flush=True)
-        ok_done = idx > 0
+        for i, (enc, hw_decode) in enumerate(attempts):
+            try:
+                encode(src, tmp, start, duration, enc, hw_decode, on_progress, should_stop)
+                tmp.replace(dst)
+                if not on_progress:
+                    print()
+                return enc
+            except RuntimeError:
+                if i == len(attempts) - 1:
+                    raise
     finally:
-        cap.release()
-        proc.stdin.close()
-        ffmpeg_ok = proc.wait() == 0
-        if ok_done and ffmpeg_ok:
-            tmp.replace(dst)
-        else:
-            tmp.unlink(missing_ok=True)
-    if not ok_done:
-        raise RuntimeError("videodan kare okunamadı")
-    if not ffmpeg_ok:
-        raise RuntimeError("ffmpeg hata verdi")
-    if not on_progress:
-        print()
+        tmp.unlink(missing_ok=True)
 
 
 def find_videos(input_dir):
