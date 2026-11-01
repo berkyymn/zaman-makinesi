@@ -642,7 +642,7 @@ class TuneWorker(QThread):
     """Bu bilgisayar için en hızlı ayarı bulur. Daha önce ölçüldüyse hemen biter (tuning sinyali gelmez)."""
     tuning = Signal()                    # ölçüm başlıyor (ekran gösterilsin)
     step = Signal(int, int, str)         # sıra, toplam, ayar
-    done = Signal(object)                # {ayar: saniye} ya da None
+    done = Signal(object, bool)          # ({ayar: saniye} ya da None, süre aşıldı mı)
 
     def __init__(self, force=False):
         super().__init__()
@@ -655,23 +655,23 @@ class TuneWorker(QThread):
             families = main.working_families()
             if not self.force and main.load_tuning(tune_cache(), families):
                 log.info("Kaydedilmiş en hızlı ayar: %s", main._encoder)
-                self.done.emit(None)
+                self.done.emit(None, False)
                 return
             self.tuning.emit()
-            results = main.tune(tune_cache(), families, on_step=self.step.emit,
-                                should_stop=lambda: self.cancelled)
-            if results:
-                table = ", ".join(f"{k} {v} sn" for k, v in sorted(results.items(), key=lambda kv: kv[1]))
-                log.info("Hız ölçümü: %s -> seçilen: %s", table, main._encoder)
-            self.done.emit(results)
+            results, timed_out = main.tune(tune_cache(), families, on_step=self.step.emit,
+                                           should_stop=lambda: self.cancelled)
+            table = ", ".join(f"{k} {v} sn" for k, v in sorted((results or {}).items(), key=lambda kv: kv[1]))
+            log.info("Hız ölçümü%s: %s -> seçilen: %s", " (süre doldu)" if timed_out else "",
+                     table or "-", main._encoder)
+            self.done.emit(results, timed_out)
         except Exception:
             log.exception("Hız ölçümü yapılamadı")
-            self.done.emit(None)
+            self.done.emit(None, True)
 
 
 class TuneOverlay(QFrame):
-    """Ölçüm sürerken pencerenin üstünü kaplar: büyüteçle arayan Zaman Adam ve ilerleme."""
-    skip_requested = Signal()
+    """Ölçüm sürerken pencerenin üstünü kaplar: büyüteçle arayan Zaman Adam ve ilerleme.
+    İptal edilemez; süre sınırı aşılırsa ölçüm kendiliğinden güvenli ayarla biter."""
 
     def __init__(self, parent):
         super().__init__(parent)
@@ -693,9 +693,6 @@ class TuneOverlay(QFrame):
         self.step_label = QLabel()
         self.step_label.setObjectName("small")
         self.step_label.setAlignment(Qt.AlignCenter)
-        self.skip = QToolButton(text="Şimdilik geç")
-        self.skip.setToolTip("Güvenli ayarla devam edilir; ölçüm bir sonraki açılışta yapılır")
-        self.skip.clicked.connect(self.skip_requested)
         inner = QVBoxLayout(card)
         inner.setContentsMargins(28, 22, 28, 18)
         inner.setSpacing(8)
@@ -705,7 +702,6 @@ class TuneOverlay(QFrame):
         inner.addSpacing(6)
         inner.addWidget(self.bar)
         inner.addWidget(self.step_label)
-        inner.addWidget(self.skip, 0, Qt.AlignCenter)
         outer = QVBoxLayout(self)
         outer.addStretch()
         outer.addWidget(card, 0, Qt.AlignCenter)
@@ -718,11 +714,10 @@ class TuneOverlay(QFrame):
         self.hide_timer.stop()
         self.buddy.set_mode("search")
         self.title.setText("En hızlı ayar aranıyor…")
-        self.body.setText("Bu bilgisayar için bir kereliğine ölçüm yapıyorum. Birkaç saniye sürer; "
-                          "sonra videolarınız en hızlı yoldan işlenir.")
+        self.body.setText("Bu bilgisayar için bir kereliğine ölçüm yapıyorum. Genelde birkaç saniye, "
+                          "en fazla bir dakika sürer; sonra videolarınız en hızlı yoldan işlenir.")
         self.bar.setRange(0, 0)  # adım sayısı belli olana kadar akan çubuk
         self.step_label.setText("Hazırlanıyor…")
-        self.skip.show()
         self.setGeometry(self.parentWidget().rect())
         self.raise_()
         self.show()
@@ -733,7 +728,6 @@ class TuneOverlay(QFrame):
         self.step_label.setText(f"{profile_label(key)} deneniyor · {index + 1} / {total}")
 
     def finish(self, found):
-        self.skip.hide()
         self.bar.setRange(0, 1)
         self.bar.setValue(1)
         if found:
@@ -743,8 +737,9 @@ class TuneOverlay(QFrame):
             self.step_label.setText("")
         else:
             self.buddy.set_mode("wave")
-            self.title.setText("Şimdilik güvenli ayarla devam")
-            self.body.setText("Ölçümü bir sonraki açılışta tekrar deneyeceğim.")
+            self.title.setText("Güvenli ayarla devam ediyorum")
+            self.body.setText(f"Ölçüm uzun sürdü; <b>{profile_label(main._encoder)}</b> kullanılacak. "
+                              "İsterseniz Ayarlar'dan yeniden ölçebilirsiniz.")
             self.step_label.setText("")
         self.hide_timer.start()
 
@@ -1683,7 +1678,6 @@ class MainWindow(QMainWindow):
         self.overlay = DropOverlay(central)
         self.toast = BuddyToast(central)
         self.tune_overlay = TuneOverlay(central)
-        self.tune_overlay.skip_requested.connect(self.skip_tuning)
         self.tuner = None
         self.pending_update = None
 
@@ -1907,13 +1901,9 @@ class MainWindow(QMainWindow):
         self.tuner.done.connect(self.tuning_done)
         self.tuner.start()
 
-    def skip_tuning(self):
-        if self.tuner:
-            self.tuner.cancelled = True
-
-    def tuning_done(self, results):
+    def tuning_done(self, results, timed_out):
         if self.tune_overlay.isVisible():
-            self.tune_overlay.finish(bool(results))
+            self.tune_overlay.finish(not timed_out)
         self.tuner.wait()
         self.tuner.deleteLater()
         self.tuner = None
@@ -2218,8 +2208,8 @@ def self_test():
             dst = output_path(Path(d), src, start)
             used = main.process(src, dst, start, on_progress=lambda f: None)
             assert dst.stat().st_size > 0, "çıktı boş"
-            results = main.tune(Path(d) / "hiz.json", main.working_families())
-            assert results, "hız ölçümü yapılamadı"
+            results, timed_out = main.tune(Path(d) / "hiz.json", main.working_families())
+            assert results and not timed_out, "hız ölçümü yapılamadı"
         log.write_text(f"OK {info} · kodlayıcı: {used} · ölçüm: {results} -> {main._encoder}\n", encoding="utf-8")
         return 0
     except Exception:

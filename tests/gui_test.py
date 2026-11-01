@@ -292,11 +292,17 @@ while w.tuner:
     saw_overlay = saw_overlay or w.tune_overlay.isVisible()
     pump(20)
 check("ölçüm: ikinci açılışta tekrar ölçmedi", not saw_overlay and main.tuned)
-w.start_tuning(force=True); pump(100)
-w.skip_tuning()
+orig_limit = main.TUNE_TOTAL_LIMIT; main.TUNE_TOTAL_LIMIT = 0  # süre sınırı hemen dolsun
+main._encoder, main.tuned = None, False
+w.start_tuning(force=True)
 while w.tuner:
     pump(20)
-check("ölçüm: 'Şimdilik geç' çalışıyor", "güvenli" in w.tune_overlay.title.text())
+main.TUNE_TOTAL_LIMIT = orig_limit
+saved = json.loads(gui.tune_cache().read_text())
+check("ölçüm: süre dolunca güvenli varsayılan seçildi ve kaydedildi",
+      main._encoder == main.pick_encoder() and saved["timed_out"] and saved["profile"] == main._encoder
+      and "Güvenli" in w.tune_overlay.title.text())
+check("ölçüm: iptal butonu yok", not hasattr(w.tune_overlay, "skip"))
 
 print(f"\n{sum(results)}/{len(results)} geçti")
 shutil.rmtree(WORK, ignore_errors=True)

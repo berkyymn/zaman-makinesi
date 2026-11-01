@@ -44,15 +44,9 @@ hem arayüz hem komut satırı bunları kullanır. Arayüz kuralları için [TAS
 
 ### Yeni sürüm yayınlama
 
-1. `version.py` içindeki sürümü artırın.
-2. `release.json`'da sürüm notunu yazın. Herkesin güncellemesi **zorunlu** olsun istiyorsanız
-   `min_supported`'ı da yeni sürüme eşitleyin.
-3. Commit'leyip etiket gönderin:
-   ```bash
-   git tag v1.1.0 && git push && git push --tags
-   ```
-
-GitHub Actions Windows'ta derler, paketi test eder, kurulum dosyasını ve `version.json`'u
-Releases'a yükler. İndirme linki hep aynı kalır ve en son sürümü verir.
+[TASARIM.md](TASARIM.md) içindeki **Sürüm yayınlama kontrol listesi**ni (bölüm 9) eksiksiz uygulayın:
+belge, testler, `TUNE_VERSION` kararı, `version.py`, `release.json`, etiket ve derlemenin takibi.
+Etiket gönderilince GitHub Actions Windows'ta derler, paketi test eder, kurulum dosyasını ve
+`version.json`'u Releases'a yükler. İndirme linki hep aynı kalır ve en son sürümü verir.
 
 Simgeyi değiştirdiyseniz: `uv run icon.py` (`assets/icon.ico`'yu yeniden üretir).

@@ -252,6 +252,11 @@ def pick_encoder():
 # Uygulamanın her sürümünde değil; metin değişikliği gibi güncellemeler yeniden ölçtürmez.
 TUNE_VERSION = 1
 
+# Ölçüm süre sınırları (saniye). Bir ayar takılırsa ya da bilgisayar çok yavaşsa ölçüm bunları aşmaz;
+# toplam süre dolarsa güvenli varsayılan ayar seçilir.
+TUNE_STEP_LIMIT = 20
+TUNE_TOTAL_LIMIT = 75
+
 
 def working_families():
     # Bu bilgisayarda çalışan grafik birimleri. Ekran kartı takılır/çıkarılırsa değişir ve yeniden ölçülür.
@@ -284,50 +289,70 @@ def tune(cache_file, families, on_step=None, should_stop=None):
 
     6 sn'lik 1080p bir deneme videosu, çalışan her aday ayarla gerçek işlemden geçirilir
     (okuma + saat + sıkıştırma); en kısa sürede bitiren seçilir.
-    on_step(sıra, toplam, ayar): her denemeden önce çağrılır. should_stop() True dönerse ölçüm bırakılır.
-    Ölçüm sonuçlarını {ayar: saniye} olarak döner; bırakıldıysa ya da ölçülemediyse None.
+    Her ayar en fazla TUNE_STEP_LIMIT sn sürebilir; toplam TUNE_TOTAL_LIMIT sn dolarsa ölçüm bırakılır ve
+    güvenli varsayılan ayar (pick_encoder) seçilip kaydedilir.
+    on_step(sıra, toplam, ayar): her denemeden önce çağrılır.
+    should_stop(): True dönerse (uygulama kapanıyor) hiçbir şey kaydedilmeden çıkılır.
+    Döner: ({ayar: saniye}, süre_aşıldı_mı) ya da kapatıldıysa (None, False).
     """
     global _encoder, tuned
     stop = should_stop or (lambda: False)
+    deadline = time.monotonic() + TUNE_TOTAL_LIMIT
+    out_of_time = lambda: time.monotonic() > deadline
     candidates = tune_candidates(families)
     results = {}
+    timed_out = False
     with tempfile.TemporaryDirectory() as d:
         sample = Path(d) / "olcum.mp4"
-        subprocess.run([find_ffmpeg(), "-y", "-loglevel", "error", "-f", "lavfi",
-                        "-i", "testsrc2=s=1920x1080:r=30:d=6,noise=alls=3:allf=t",
-                        "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", str(sample)],
-                       check=True, creationflags=NO_WINDOW)
+        try:
+            subprocess.run([find_ffmpeg(), "-y", "-loglevel", "error", "-f", "lavfi",
+                            "-i", "testsrc2=s=1920x1080:r=30:d=6,noise=alls=3:allf=t",
+                            "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", str(sample)],
+                           check=True, creationflags=NO_WINDOW, timeout=TUNE_STEP_LIMIT)
+        except (subprocess.SubprocessError, OSError):
+            timed_out = True
         start = datetime(2026, 1, 1)
         for i, key in enumerate(candidates):
+            if timed_out:
+                break
             if stop():
-                return None
+                return None, False
+            if out_of_time():
+                timed_out = True
+                break
             if on_step:
                 on_step(i, len(candidates), key)
             out = Path(d) / f"{key}.mp4"
             began = time.perf_counter()
+            limit = min(TUNE_STEP_LIMIT, max(deadline - time.monotonic(), 1))
             try:
-                encode(sample, out, start, 6.0, key, None, False, stop)
+                encode(sample, out, start, 6.0, key, None, False, lambda: stop() or out_of_time(), timeout=limit)
             except (RuntimeError, Cancelled):
                 continue
             if out.exists() and out.stat().st_size > 0:
                 results[key] = round(time.perf_counter() - began, 2)
-    if not results or stop():
-        return None
+    if stop():
+        return None, False
 
-    # Aday sırası güvenliden hızlıya; daha az bilinen bir ayara ancak en az %10 daha hızlıysa geçilir
-    order = sorted(results, key=candidates.index)
-    best = order[0]
-    for key in order:
-        if results[key] < results[best] * 0.9:
-            best = key
+    if timed_out or not results:
+        # Süre doldu: ölçmeye devam etmeden güvenli varsayılanla çalışılır
+        best, timed_out = pick_encoder(), True
+    else:
+        # Aday sırası güvenliden hızlıya; daha az bilinen bir ayara ancak en az %10 daha hızlıysa geçilir
+        order = sorted(results, key=candidates.index)
+        best = order[0]
+        for key in order:
+            if results[key] < results[best] * 0.9:
+                best = key
     with _encoder_lock:
         _encoder, tuned = best, True
     try:
         Path(cache_file).write_text(json.dumps({"tune_version": TUNE_VERSION, "families": families,
-                                                "profile": best, "results": results}), encoding="utf-8")
+                                                "profile": best, "results": results,
+                                                "timed_out": timed_out}), encoding="utf-8")
     except OSError:
         pass
-    return results
+    return results, timed_out
 
 
 def video_duration(src):
@@ -354,8 +379,9 @@ def drawtext_filter(start):
             f"x={MARGIN_LEFT + PADDING}:y={MARGIN_TOP + PADDING}")
 
 
-def encode(src, tmp, start, duration, profile, hw_decode, on_progress, should_stop):
-    # hw_decode None ise ayarın kendi tercihi kullanılır
+def encode(src, tmp, start, duration, profile, hw_decode, on_progress, should_stop, timeout=None):
+    # hw_decode None ise ayarın kendi tercihi kullanılır. timeout: bu kadar saniyede bitmezse ffmpeg kapatılır
+    # (sürücü takılıp hiç çıktı vermese bile).
     _, args, prefers_hw = PROFILES[profile]
     cmd = [find_ffmpeg(), "-y", "-hide_banner", "-loglevel", "error", "-nostats",
            "-progress", "pipe:1", "-stats_period", "0.5"]
@@ -366,6 +392,9 @@ def encode(src, tmp, start, duration, profile, hw_decode, on_progress, should_st
     with tempfile.TemporaryFile() as err:
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=err, creationflags=NO_WINDOW,
                                 text=True, encoding="utf-8", errors="replace")
+        watchdog = threading.Timer(timeout, proc.kill) if timeout else None
+        if watchdog:
+            watchdog.start()
         try:
             for line in proc.stdout:
                 if should_stop and should_stop():
@@ -385,6 +414,9 @@ def encode(src, tmp, start, duration, profile, hw_decode, on_progress, should_st
             proc.kill()
             proc.wait()
             raise
+        finally:
+            if watchdog:
+                watchdog.cancel()
         if code != 0:
             err.seek(0)
             detail = err.read().decode("utf-8", "replace").strip().splitlines()[-3:]
