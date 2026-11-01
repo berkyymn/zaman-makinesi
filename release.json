@@ -1,4 +1,4 @@
 {
   "min_supported": "1.0.6",
-  "notes": "Uygulama artık her bilgisayar için en hızlı ayarı kendisi buluyor: güncellemeden sonraki ilk açılışta birkaç saniyelik bir ölçüm yapılır. Ayarlar'dan istediğinizde yeniden ölçebilirsiniz."
+  "notes": "Hız ölçümü düzeltildi: bilgisayarınızda grafik hızlandırması varsa artık her zaman o kullanılıyor. Güncellemeden sonraki ilk açılışta ölçüm bir kez yeniden yapılır (yaklaşık yarım dakika)."
 }
