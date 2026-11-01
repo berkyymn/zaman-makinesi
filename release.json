@@ -1,4 +1,4 @@
 {
   "min_supported": "1.0.6",
-  "notes": "Videolar işlenirken artık istediğinizi tek tek iptal edebilirsiniz: satırın yanındaki '✕ İptal' ile sıradaki video çıkarılır ya da işlenen video durdurulur, diğerleri devam eder."
+  "notes": "Uygulama artık her bilgisayar için en hızlı ayarı kendisi buluyor: güncellemeden sonraki ilk açılışta birkaç saniyelik bir ölçüm yapılır. Ayarlar'dan istediğinizde yeniden ölçebilirsiniz."
 }
