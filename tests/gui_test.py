@@ -244,7 +244,7 @@ check("ayarlar: eski kontrolde kendiliğinden denetledi", "Şimdi güncelle" in 
 sd.close(); w.update_info = None; w.badge.hide()
 sd = gui.SettingsDialog(w); sd.show(); pump(800)
 check("ayarlar: yeni kontrolde tekrar denetlemedi", "Son kontrol: bugün" in sd.update_status.text())
-check("ayarlar: hız kartı kodlayıcıyı söylüyor", "kullanılıyor" in sd.speed.text())
+check("ayarlar: hızlandırma satırı dolu", sd.speed.text() and "Belirleniyor" not in sd.speed.text())
 shot(sd, "09_ayarlar.png")
 gui.apply_theme("dark"); shot(sd, "10_ayarlar_koyu.png"); sd.close(); gui.apply_theme("light")
 

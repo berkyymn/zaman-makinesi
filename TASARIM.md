@@ -124,8 +124,8 @@ ayrı bir çıktı üretir. İşler sırayla, tek tek işlenir. Çıktıda ses y
 - İşlenmemiş video varsa: "Listede henüz işlenmemiş N video var…" **[Çık] [Vazgeç]**
 
 ### Ayarlar (⚙)
-- Solda menü (el sallayan Zaman Adam + **Görünüm / Çıktılar / Hız / Güncelleme**), sağda o sayfa.
-  Yeni sürüm varsa Güncelleme menüsünde kırmızı nokta olur ve pencere doğrudan o sayfada açılır.
+- Tek pencere, tek kart: üstte el sallayan Zaman Adam ve sürüm; altında satır satır **Tema · Çıktı klasörü ·
+  Aylara göre klasörle · Hızlandırma · Güncelleme** (solda ne olduğu, sağda ayarın kendisi); altta "Hata kaydını aç".
 - Tema: **Sistem / Açık / Koyu** (bitişik üç seçenek) (Sistem seçiliyse Windows teması değişince uygulama da değişir).
 - Çıktı klasörü (**Değiştir**, **Klasörü aç**) + "Aylara göre klasörle"; açıkken de kapalıyken de ne olacağı
   bir cümleyle ve örnek yolla anlatılır.
