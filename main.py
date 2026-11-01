@@ -52,9 +52,11 @@ WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 # Video kalitesi: küçük sayı = daha kaliteli ama büyük dosya (17-23 arası önerilir)
 CRF = 23
 
-# Boyut tavanı: çıktının bit hızı ne girişin bit hızının %90'ını (SOURCE_RATE_SHARE) ne de "piksel başına bit"
-# sınırını aşar. Böylece çıktı girişten büyük olmaz; çok yüksek bit hızlı kaynaklarda da makul bir boyuta iner.
-SOURCE_RATE_SHARE = 0.90
+# Boyut tavanı: çıktının bit hızı ne girişin bit hızını ne de "piksel başına bit" sınırını aşar. Böylece çıktı
+# girişle yaklaşık aynı boyutta kalır (H.264 girişte ±%5); çok yüksek bit hızlı kaynaklarda makul boyuta iner.
+# Çıktı her zaman H.264'tür; H.264'ten verimli girişlerde (HEVC/VP9/AV1) görüntü bozulmasın diye tavan girişin
+# bu katı kadardır. Örn. AV1 girişi aynı bit hızına sıkıştırmak görüntüyü belirgin bozar.
+CODEC_RATE_FACTOR = {"hevc": 1.4, "vp9": 1.4, "av1": 1.5}
 # 0.10 bit/piksel: 1080p30 ≈ 6,2 Mbit/sn, 1080p60 ≈ 12,4 Mbit/sn, 720p25 ≈ 2,3 Mbit/sn.
 MAX_BITS_PER_PIXEL = 0.10
 
@@ -239,7 +241,7 @@ def rate_args(family, kbps):
 def target_kbps(info):
     # Çıktının bit hızı tavanı: girişin bit hızı ve piksel başına bit sınırından küçük olanı
     ceiling = info["width"] * info["height"] * max(info["fps"] or 30, 1) * MAX_BITS_PER_PIXEL / 1000
-    source = info["bitrate"] * SOURCE_RATE_SHARE if info.get("bitrate") else ceiling
+    source = info["bitrate"] * CODEC_RATE_FACTOR.get(info.get("codec"), 1.0) if info.get("bitrate") else ceiling
     return max(int(min(source, ceiling)), 300)
 
 

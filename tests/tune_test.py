@@ -110,5 +110,11 @@ check("donanım değişince yeniden ölçülür", not main.load_tuning(cache, ["
 main.TUNE_VERSION += 1
 check("TUNE_VERSION artınca yeniden ölçülür", not main.load_tuning(cache, ["cpu"]))
 
+# 7) Boyut tavanı: H.264 girişte girişin kendisi, verimli formatlarda daha fazlası, hepsinde üst sınır
+t = main.target_kbps
+check("tavan: H.264 giriş = giriş bit hızı", t({"width": 1920, "height": 1080, "fps": 60, "bitrate": 5200, "codec": "h264"}) == 5200)
+check("tavan: AV1 giriş 1,5 katı", t({"width": 1920, "height": 1080, "fps": 60, "bitrate": 4000, "codec": "av1"}) == 6000)
+check("tavan: yüksek bit hızlı kamera üst sınırda", t({"width": 1920, "height": 1080, "fps": 30, "bitrate": 50000, "codec": "h264"}) == 6220)
+
 print(f"\n{sum(results)}/{len(results)} geçti")
 sys.exit(0 if all(results) else 1)

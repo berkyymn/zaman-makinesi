@@ -30,12 +30,14 @@ Windows masaüstü uygulaması.
   kısaltmadır (ffmpeg üretir). Saat, videonun her saniyesinde bir artar.
 - Görünüm (font, boyut, konum, renk, kalite) `main.py`'nin başındaki **AYARLAR** bölümündedir.
   Varsayılan: Courier New Bold 30 px, beyaz yazı, siyah kutu, sol 24 / üst 60 px, CRF 23.
-- **Çıktı girişten büyük olmaz (boyut tavanı).** Her videonun bit hızı okunur; çıktının bit hızı tavanı
-  `min(giriş × SOURCE_RATE_SHARE (%90), genişlik × yükseklik × fps × MAX_BITS_PER_PIXEL (0,10))`'dur
-  (en az 300 kb/s). Böylece verimli sıkıştırılmış kaynaklarda çıktı girişten küçük, çok yüksek bit hızlı
-  kamera kayıtlarında makul boyutta olur (1080p30 ≈ 6,2 Mbit/sn, 1080p60 ≈ 12,4 Mbit/sn tavanı).
+- **Çıktı girişle yaklaşık aynı boyutta kalır (boyut tavanı).** Her videonun bit hızı ve formatı okunur;
+  çıktının bit hızı tavanı `min(giriş × format katsayısı, genişlik × yükseklik × fps × MAX_BITS_PER_PIXEL (0,10))`'dur
+  (en az 300 kb/s). Format katsayısı (`CODEC_RATE_FACTOR`): H.264 ve diğerleri **1,0**; HEVC/VP9 **1,4**; AV1
+  **1,5** (çıktı H.264 olduğu için daha verimli formatlardan gelen videoda görüntü bozulmasın). Küçük taşmalar
+  (~%5) kabul edilir; amaç 1,86x gibi büyümeleri önlemek, kaliteyi sıkıştırmak değil.
   NVENC ve işlemci: kalite hedefi (CRF/CQ 23) + tavan; Quick Sync ve AMD: tavanı hedefleyen değişken bit hızı.
-  Ölçüm (Mac, x264): 1080p60 5,2 Mbit girişte çıktı 0,92x, SSIM 0,986; 11,7 Mbit 1080p30 girişte 0,47x, SSIM 0,988.
+  Ölçüm (Mac, x264, 1080p60 5,2 Mbit H.264 giriş): tavan = giriş → 1,03x, SSIM 0,9864; tavan = girişin %90'ı
+  → 0,92x, SSIM 0,9860 (fark gözle görülmez; kullanıcı küçük taşmayı kabul etti, girişin kendisi seçildi).
   Sebep: 1.0.12'de kalite hedefiyle 1080p60 5,2 Mbit'lik 400 MB giriş 756 MB (1,86x) çıkmıştı.
 
 ### Çıktılar ve dosyalama
