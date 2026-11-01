@@ -164,21 +164,37 @@ def repolish(widget, name, value):
     widget.style().polish(widget)
 
 
+def stop_effect(widget):
+    # Süren bir belirme animasyonunu durdurup efekti kaldırır. Yoksa animasyon silinmiş efekti
+    # oynatmaya çalışır ("animation without target" uyarısı) ya da yeni efekti yanlışlıkla siler.
+    anim = getattr(widget, "_fade", None)
+    if anim is not None:
+        anim.stop()
+        widget._fade = None
+    if widget.graphicsEffect():
+        widget.setGraphicsEffect(None)
+
+
 def fade_in(widget, ms=280):
+    stop_effect(widget)
     effect = QGraphicsOpacityEffect(widget)
     widget.setGraphicsEffect(effect)
     anim = QPropertyAnimation(effect, b"opacity", widget, duration=ms, startValue=0.0, endValue=1.0,
                               easingCurve=QEasingCurve.OutCubic)
-    anim.finished.connect(lambda: widget.setGraphicsEffect(None))
+    anim.finished.connect(lambda: stop_effect(widget))
+    widget._fade = anim
     anim.start()
 
 
 def collapse_out(widget, ms=240):
     # Satırı soldurup boyunu sıfırlayarak kaldırır, sonra siler
     widget.setEnabled(False)
-    for child in widget.findChildren(QWidget):  # iç içe efektler Qt'de çizim hatası verir
-        if child.graphicsEffect():
-            child.setGraphicsEffect(None)
+    for child in [widget, *widget.findChildren(QWidget)]:  # iç içe efektler Qt'de çizim hatası verir
+        if getattr(child, "_collapse", None) is not None:  # içinde zaten kapanmakta olan satır varsa
+            child._collapse.stop()
+            child._collapse = None
+            child.hide()
+        stop_effect(child)
     effect = QGraphicsOpacityEffect(widget)
     widget.setGraphicsEffect(effect)
     group = QParallelAnimationGroup(widget)
@@ -186,6 +202,7 @@ def collapse_out(widget, ms=240):
     group.addAnimation(QPropertyAnimation(widget, b"maximumHeight", duration=ms, startValue=widget.height(),
                                           endValue=0, easingCurve=QEasingCurve.InOutCubic))
     group.finished.connect(widget.deleteLater)
+    widget._collapse = group
     group.start()
 
 
