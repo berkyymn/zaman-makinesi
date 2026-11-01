@@ -1248,6 +1248,8 @@ class SettingsDialog(QDialog):
 
     def _refresh(self):
         w = self.main
+        # Kısaltma, etiketin asıl (küçük) yazı tipiyle hesaplansın; yoksa ilk açılışta farklı kısalır
+        self.out_path.ensurePolished()
         self.out_path.setText(self.out_path.fontMetrics().elidedText(str(w.out_dir), Qt.ElideMiddle, 270))
         self.out_path.setToolTip(str(w.out_dir))
         if w.monthly:
