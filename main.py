@@ -217,7 +217,6 @@ PROFILES = {
 
 _encoder = None  # kullanılan ayar (PROFILES anahtarı)
 _encoder_lock = threading.Lock()
-_busy = threading.Event()  # video işlenirken ölçüm yapılmaz (sonuç bozulur, iş yavaşlar)
 tuned = False  # bu bilgisayar için ölçülerek mi seçildi
 
 
@@ -249,27 +248,48 @@ def pick_encoder():
         return _encoder
 
 
-def tune(cache_file, version):
-    """Bu bilgisayardaki en hızlı ayarı bir kez ölçer ve hatırlar.
+# Ölçümün ne zaman yeniden yapılacağı: aday ayarlar ya da ölçüm yöntemi değişince bu sayıyı artırın.
+# Uygulamanın her sürümünde değil; metin değişikliği gibi güncellemeler yeniden ölçtürmez.
+TUNE_VERSION = 1
 
-    Birkaç saniyelik 1080p bir deneme videosu, çalışan her ayarla gerçek işlemle (okuma + saat + sıkıştırma)
-    işlenir; en kısa sürede bitiren seçilir. Uygulama sürümü değişince yeniden ölçülür.
-    Ölçüm sonuçlarını {ayar: saniye} olarak döner; ölçülemezse None.
-    """
+
+def working_families():
+    # Bu bilgisayarda çalışan grafik birimleri. Ekran kartı takılır/çıkarılırsa değişir ve yeniden ölçülür.
+    return ["cpu"] + [f for f in ("nvenc", "qsv", "amf") if encoder_works(f)]
+
+
+def load_tuning(cache_file, families):
+    """Daha önce bu donanım için ölçülmüş ayar varsa onu kullanır. Ölçüm gerekiyorsa False döner."""
     global _encoder, tuned
     if os.environ.get("ZM_ENCODER", ENCODER) != "auto":
-        return None
+        return True  # elle seçilmiş; ölçüme gerek yok
     try:
         cached = json.loads(Path(cache_file).read_text(encoding="utf-8"))
-        if cached.get("version") == version and cached.get("profile") in PROFILES:
-            _encoder, tuned = cached["profile"], True
-            return cached.get("results")
     except (OSError, ValueError):
-        pass
+        return False
+    if (cached.get("tune_version") != TUNE_VERSION or cached.get("families") != families
+            or cached.get("profile") not in PROFILES):
+        return False
+    with _encoder_lock:
+        _encoder, tuned = cached["profile"], True
+    return True
 
-    pick_encoder()
-    families = {"cpu"} | {f for f in ("nvenc", "qsv", "amf") if encoder_works(f)}
-    candidates = [k for k, (fam, _, _) in PROFILES.items() if fam in families]
+
+def tune_candidates(families):
+    return [k for k, (fam, _, _) in PROFILES.items() if fam in families]
+
+
+def tune(cache_file, families, on_step=None, should_stop=None):
+    """Bu bilgisayardaki en hızlı ayarı ölçer, seçer ve kaydeder.
+
+    6 sn'lik 1080p bir deneme videosu, çalışan her aday ayarla gerçek işlemden geçirilir
+    (okuma + saat + sıkıştırma); en kısa sürede bitiren seçilir.
+    on_step(sıra, toplam, ayar): her denemeden önce çağrılır. should_stop() True dönerse ölçüm bırakılır.
+    Ölçüm sonuçlarını {ayar: saniye} olarak döner; bırakıldıysa ya da ölçülemediyse None.
+    """
+    global _encoder, tuned
+    stop = should_stop or (lambda: False)
+    candidates = tune_candidates(families)
     results = {}
     with tempfile.TemporaryDirectory() as d:
         sample = Path(d) / "olcum.mp4"
@@ -278,30 +298,33 @@ def tune(cache_file, version):
                         "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", str(sample)],
                        check=True, creationflags=NO_WINDOW)
         start = datetime(2026, 1, 1)
-        for key in candidates:
-            if _busy.is_set():
-                return None  # kullanıcı video işlemeye başladı; bir dahaki açılışta ölçülür
+        for i, key in enumerate(candidates):
+            if stop():
+                return None
+            if on_step:
+                on_step(i, len(candidates), key)
             out = Path(d) / f"{key}.mp4"
             began = time.perf_counter()
             try:
-                encode(sample, out, start, 6.0, key, None, lambda f: None, lambda: _busy.is_set())
+                encode(sample, out, start, 6.0, key, None, False, stop)
             except (RuntimeError, Cancelled):
                 continue
             if out.exists() and out.stat().st_size > 0:
                 results[key] = round(time.perf_counter() - began, 2)
-    if not results or _busy.is_set():
+    if not results or stop():
         return None
 
-    # Aday sırası güvenliden hızlıya; ancak en az %10 daha hızlıysa daha az bilinen ayara geçilir
-    best = min(results, key=lambda k: candidates.index(k))
-    for key in sorted(results, key=lambda k: candidates.index(k)):
+    # Aday sırası güvenliden hızlıya; daha az bilinen bir ayara ancak en az %10 daha hızlıysa geçilir
+    order = sorted(results, key=candidates.index)
+    best = order[0]
+    for key in order:
         if results[key] < results[best] * 0.9:
             best = key
     with _encoder_lock:
         _encoder, tuned = best, True
     try:
-        Path(cache_file).write_text(json.dumps({"version": version, "profile": best, "results": results}),
-                                    encoding="utf-8")
+        Path(cache_file).write_text(json.dumps({"tune_version": TUNE_VERSION, "families": families,
+                                                "profile": best, "results": results}), encoding="utf-8")
     except OSError:
         pass
     return results
@@ -355,7 +378,7 @@ def encode(src, tmp, start, duration, profile, hw_decode, on_progress, should_st
                         fraction = min(max(int(us) / 1e6 / duration, 0.0), 1.0)
                         if on_progress:
                             on_progress(fraction)
-                        else:
+                        elif on_progress is not False:
                             print(f"\r  %{int(fraction * 100)}", end="", flush=True)
             code = proc.wait()
         except BaseException:
@@ -382,7 +405,6 @@ def process(src, dst, start, on_progress=None, should_stop=None):
     # işlemciyle (donanım yardımı olmadan, en güvenli yol) baştan yapılır.
     profile = pick_encoder()
     attempts = [(profile, None)] if profile == "cpu" else [(profile, None), ("cpu", False)]
-    _busy.set()
     try:
         for i, (prof, hw_decode) in enumerate(attempts):
             try:
@@ -395,7 +417,6 @@ def process(src, dst, start, on_progress=None, should_stop=None):
                 if i == len(attempts) - 1:
                     raise
     finally:
-        _busy.clear()
         tmp.unlink(missing_ok=True)
 
 

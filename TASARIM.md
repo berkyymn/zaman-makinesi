@@ -153,12 +153,17 @@ ayrı bir çıktı üretir. İşler sırayla, tek tek işlenir. Çıktıda ses y
 - Kodlayıcı otomatik seçilir (`main.ENCODER = "auto"`): açılışta arka planda 1 sn'lik denemeyle sırayla
   **NVIDIA (NVENC) → Intel (Quick Sync) → AMD (AMF)** yoklanır, ilk çalışan kullanılır; hiçbiri yoksa
   **işlemci (x264 veryfast)**. Seçim Ayarlar'daki "Hız" kartında ve hata kaydında görünür.
-- **Bu bilgisayara özel ayar (tune):** İlk açılışta (ve her sürüm güncellemesinden sonra bir kez) arka planda
-  6 sn'lik 1080p bir deneme videosu, çalışan her ailenin aday ayarlarıyla gerçek işlemden geçirilir:
-  NVENC p4/p1, Quick Sync medium/veryfast/düşük güç, AMF balanced/speed, işlemci (donanımla çözmeli ve
-  çözmesiz). En hızlı olan seçilir (daha az bilinen bir ayara ancak en az %10 daha hızlıysa geçilir) ve
-  `hiz-olcumu.json`'a yazılır; sonuçlar hata kaydında görünür. Kullanıcı o sırada video işlemeye başlarsa
-  ölçüm bırakılır, bir sonraki açılışta yapılır.
+- **Bu bilgisayara özel ayar (tune):** 6 sn'lik 1080p bir deneme videosu, çalışan her ailenin aday
+  ayarlarıyla gerçek işlemden geçirilir: NVENC p4/p1, Quick Sync medium/veryfast/düşük güç, AMF
+  balanced/speed, işlemci (donanımla çözmeli ve çözmesiz). En hızlı olan seçilir (daha az bilinen bir ayara
+  ancak en az %10 daha hızlıysa geçilir) ve `hiz-olcumu.json`'a yazılır; sonuçlar hata kaydında görünür.
+- **Ne zaman ölçülür:** Sadece (1) ilk açılışta, (2) bilgisayarda çalışan grafik birimleri değişince
+  (ör. ekran kartı takıldı) ve (3) `main.TUNE_VERSION` artırılınca (aday ayarlar ya da ölçüm yöntemi
+  değişince). Uygulamanın normal sürüm güncellemeleri yeniden ölçtürmez. Ayarlar'da **Yeniden ölç** de var.
+- **Ölçüm ekranı:** Pencerenin üstünü kaplar, ölçüm bitene kadar işlem başlatılamaz. Büyüteçle arayan
+  Zaman Adam, "En hızlı ayar aranıyor…", ilerleme ve "Intel grafik · hızlı ayar deneniyor · 3 / 7".
+  Bitince Zaman Adam başparmağını kaldırır: "Buldum! 🎉 Bu bilgisayarda en hızlısı: …", 2 sn sonra kapanır.
+  **Şimdilik geç** güvenli ayarla devam eder, ölçüm bir sonraki açılışta yapılır.
 - Yedek: grafik birimi bir videoda hata verirse o video kendiliğinden işlemciyle baştan yapılır.
   İşlemci kodlayıcısı uygulamanın içinde geldiği için her bilgisayarda çalışır.
 - Ölçüm (Mac, 60 sn 1080p30, 2 çekirdekle sınırlı): x264 medium 21,8 sn → veryfast 6,2 sn (3,5x).

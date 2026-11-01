@@ -13,7 +13,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import threading
 import time
 import traceback
 from contextlib import contextmanager
@@ -26,7 +25,7 @@ import cv2
 from PySide6.QtCore import (QEasingCurve, QParallelAnimationGroup, QPauseAnimation, QPoint, QPointF,
                             QPropertyAnimation, QSequentialAnimationGroup, QRectF, QSettings, QStandardPaths, Qt,
                             QThread, QTimer, QUrl, QVariantAnimation, Signal)
-from PySide6.QtGui import QColor, QDesktopServices, QFont, QImage, QPainter, QPalette, QPen, QPixmap
+from PySide6.QtGui import QColor, QDesktopServices, QFont, QImage, QPainter, QPainterPath, QPalette, QPen, QPixmap
 from PySide6.QtWidgets import (QApplication, QButtonGroup, QCheckBox, QDialog, QFileDialog, QFrame,
                                QGraphicsDropShadowEffect, QGraphicsOpacityEffect, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox,
                                QProgressBar, QPushButton, QScrollArea, QToolButton, QVBoxLayout, QWidget)
@@ -104,6 +103,9 @@ QPushButton#danger:hover { background: $danger_hover; }
 QPushButton#primary:disabled, QPushButton#danger:disabled { background: $disabled; color: $disabled_text; }
 QToolButton#cancel { color: $danger; }
 QToolButton#cancel:hover { background: $danger_soft; }
+#tuneShade { background: rgba(0, 0, 0, 90); }
+#tuneCard { background: $card; border: 1px solid $border; border-radius: 18px; }
+#tuneCard QLabel { background: transparent; }
 #toast { background: $card; border: 1px solid $border; border-radius: 18px; }
 #toastText { font-size: 14px; }
 QLineEdit { border: 1px solid $border; border-radius: 8px; padding: 6px 8px; background: $field; color: $text;
@@ -402,7 +404,8 @@ class Clock(Logo):
 
 class TimeBuddy(QWidget):
     """Zaman Adam: uygulama simgesinin kollu bacaklı hali.
-    "run" koşar, "wave" el sallar, "ok" sevinçle zıplayıp başparmağını kaldırır."""
+    "run" koşar, "wave" el sallar, "ok" sevinçle zıplayıp başparmağını kaldırır,
+    "search" büyüteçle etrafa bakarak en iyisini arar."""
 
     def set_mode(self, mode):
         self.mode = mode
@@ -434,11 +437,15 @@ class TimeBuddy(QWidget):
         t = self.phase
         run = self.mode == "run"
         ok = self.mode == "ok"
+        search = self.mode == "search"
         swing = math.sin(t * 12) if run else 0.0
         if run:
             p.translate(0, -4 * abs(swing))
         elif ok:
             p.translate(0, -8 * abs(math.sin(t * 9)) if t < 0.7 else 0)  # iki kez sevinçle zıplar
+        elif search:  # büyüteç kutuya sığsın diye biraz küçük ve solda çizilir
+            p.translate(-2, 9 + 1.5 * math.sin(t * 2))
+            p.scale(0.8, 0.8)
         else:
             p.translate(0, 1.5 * math.sin(t * 2))
         ink = QColor(theme["text"])
@@ -469,6 +476,8 @@ class TimeBuddy(QWidget):
             arms = ((20, 44, -25 - 40 * swing), (80, 44, 25 + 40 * swing))
         elif ok:
             arms = ((20, 44, -30), (80, 40, 160))
+        elif search:  # büyüteci tutan kol yavaşça aşağı yukarı tarar
+            arms = ((20, 44, -30), (80, 42, 112 + 32 * math.sin(t * 2.5)))
         else:
             arms = ((20, 44, -30), (80, 40, 145 + 25 * math.sin(t * 7)))
         for x, y, angle in arms:
@@ -476,6 +485,7 @@ class TimeBuddy(QWidget):
             p.setPen(Qt.NoPen)
             p.setBrush(ink)
             p.drawEllipse(hand, 4 if ok and x > 50 else 3.5, 4 if ok and x > 50 else 3.5)
+            arm_angle = angle
         if ok:  # başparmak yukarı
             p.setPen(QPen(ink, 4, Qt.SolidLine, Qt.RoundCap))
             p.drawLine(hand + QPointF(-1, -2), hand + QPointF(-1, -9))
@@ -486,6 +496,7 @@ class TimeBuddy(QWidget):
 
         # Kadranın üstüne yüz: arada bir göz kırpar
         cx, cy = body.center().x(), body.center().y()
+        look = 3 * math.sin(t * 2.5) if search else 0  # arama sırasında gözler büyüteci izler
         if ok:  # mutlu gözler: ^ ^
             p.setPen(QPen(QColor("#202124"), 2.5, Qt.SolidLine, Qt.RoundCap))
             p.setBrush(Qt.NoBrush)
@@ -495,11 +506,42 @@ class TimeBuddy(QWidget):
             eye = 0.6 if t % 3.5 < 0.12 else 3.4
             p.setPen(Qt.NoPen)
             p.setBrush(QColor("#202124"))
-            p.drawEllipse(QPointF(cx - 6, cy - 3), 2.6, eye)
-            p.drawEllipse(QPointF(cx + 6, cy - 3), 2.6, eye)
+            p.drawEllipse(QPointF(cx - 6 + look * 0.6, cy - 3 - look * 0.4), 2.6, eye)
+            p.drawEllipse(QPointF(cx + 6 + look * 0.6, cy - 3 - look * 0.4), 2.6, eye)
         p.setPen(QPen(QColor("#202124"), 2.5, Qt.SolidLine, Qt.RoundCap))
         p.setBrush(Qt.NoBrush)
-        p.drawArc(QRectF(cx - 7, cy - 2, 14, 10), 200 * 16, 140 * 16)
+        if search:  # merakla "o" şeklinde ağız
+            p.drawEllipse(QPointF(cx + 1, cy + 6), 2.4, 2.8)
+        else:
+            p.drawArc(QRectF(cx - 7, cy - 2, 14, 10), 200 * 16, 140 * 16)
+
+        if search:
+            # Elindeki büyüteç: sap koldan devam eder, mercek açık mavi
+            a = math.radians(arm_angle)
+            d = QPointF(math.sin(a), math.cos(a))
+            lens = hand + d * 15
+            p.setPen(QPen(ink, 4, Qt.SolidLine, Qt.RoundCap))
+            p.drawLine(hand, hand + d * 6)
+            p.setBrush(QColor(198, 214, 242, 150))
+            p.setPen(QPen(ink, 3))
+            p.drawEllipse(lens, 9, 9)
+            p.setPen(QPen(QColor(255, 255, 255, 220), 2, Qt.SolidLine, Qt.RoundCap))
+            p.setBrush(Qt.NoBrush)
+            p.drawArc(QRectF(lens.x() - 6, lens.y() - 6, 12, 12), 100 * 16, 70 * 16)
+            # Etrafta yanıp sönen küçük yıldızlar
+            for i, (sx, sy) in enumerate(((10, 14), (90, 8), (6, 58))):
+                k = max(0.0, math.sin(t * 3 + i * 2.1))
+                if k > 0.05:
+                    r = 4.5 * k
+                    star = QPainterPath(QPointF(sx, sy - r))
+                    for px, py in ((sx + r * 0.25, sy - r * 0.25), (sx + r, sy), (sx + r * 0.25, sy + r * 0.25),
+                                   (sx, sy + r), (sx - r * 0.25, sy + r * 0.25), (sx - r, sy),
+                                   (sx - r * 0.25, sy - r * 0.25)):
+                        star.lineTo(px, py)
+                    star.closeSubpath()
+                    p.setPen(Qt.NoPen)
+                    p.setBrush(YELLOW)
+                    p.drawPath(star)
 
 
 class BuddyToast(QFrame):
@@ -582,6 +624,129 @@ class BuddyToast(QFrame):
         self.hide()
         if self.on_click:
             self.on_click()
+
+
+def tune_cache():
+    return log_path().with_name("hiz-olcumu.json")
+
+
+VARIANT_NAMES = {"": "", "fast": " · hızlı ayar", "lp": " · düşük güç", "hwdec": " · grafik yardımıyla"}
+
+
+def profile_label(key):
+    variant = key.split("_", 1)[1] if "_" in key else ""
+    return main.profile_name(key) + VARIANT_NAMES.get(variant, "")
+
+
+class TuneWorker(QThread):
+    """Bu bilgisayar için en hızlı ayarı bulur. Daha önce ölçüldüyse hemen biter (tuning sinyali gelmez)."""
+    tuning = Signal()                    # ölçüm başlıyor (ekran gösterilsin)
+    step = Signal(int, int, str)         # sıra, toplam, ayar
+    done = Signal(object)                # {ayar: saniye} ya da None
+
+    def __init__(self, force=False):
+        super().__init__()
+        self.force = force
+        self.cancelled = False
+
+    def run(self):
+        try:
+            log.info("Kodlayıcı: %s", main.profile_name(main.pick_encoder()))
+            families = main.working_families()
+            if not self.force and main.load_tuning(tune_cache(), families):
+                log.info("Kaydedilmiş en hızlı ayar: %s", main._encoder)
+                self.done.emit(None)
+                return
+            self.tuning.emit()
+            results = main.tune(tune_cache(), families, on_step=self.step.emit,
+                                should_stop=lambda: self.cancelled)
+            if results:
+                table = ", ".join(f"{k} {v} sn" for k, v in sorted(results.items(), key=lambda kv: kv[1]))
+                log.info("Hız ölçümü: %s -> seçilen: %s", table, main._encoder)
+            self.done.emit(results)
+        except Exception:
+            log.exception("Hız ölçümü yapılamadı")
+            self.done.emit(None)
+
+
+class TuneOverlay(QFrame):
+    """Ölçüm sürerken pencerenin üstünü kaplar: büyüteçle arayan Zaman Adam ve ilerleme."""
+    skip_requested = Signal()
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.setObjectName("tuneShade")
+        card = QFrame()
+        card.setObjectName("tuneCard")
+        card.setFixedWidth(440)
+        self.buddy = TimeBuddy(130, mode="search")
+        self.title = QLabel()
+        self.title.setObjectName("dialogTitle")
+        self.title.setAlignment(Qt.AlignCenter)
+        self.body = QLabel()
+        self.body.setObjectName("muted")
+        self.body.setAlignment(Qt.AlignCenter)
+        self.body.setWordWrap(True)
+        self.bar = QProgressBar()
+        self.bar.setTextVisible(False)
+        self.bar.setFixedHeight(6)
+        self.step_label = QLabel()
+        self.step_label.setObjectName("small")
+        self.step_label.setAlignment(Qt.AlignCenter)
+        self.skip = QToolButton(text="Şimdilik geç")
+        self.skip.setToolTip("Güvenli ayarla devam edilir; ölçüm bir sonraki açılışta yapılır")
+        self.skip.clicked.connect(self.skip_requested)
+        inner = QVBoxLayout(card)
+        inner.setContentsMargins(28, 22, 28, 18)
+        inner.setSpacing(8)
+        inner.addWidget(self.buddy, 0, Qt.AlignCenter)
+        inner.addWidget(self.title)
+        inner.addWidget(self.body)
+        inner.addSpacing(6)
+        inner.addWidget(self.bar)
+        inner.addWidget(self.step_label)
+        inner.addWidget(self.skip, 0, Qt.AlignCenter)
+        outer = QVBoxLayout(self)
+        outer.addStretch()
+        outer.addWidget(card, 0, Qt.AlignCenter)
+        outer.addStretch()
+        self.hide_timer = QTimer(self, singleShot=True, interval=2200)
+        self.hide_timer.timeout.connect(self.hide)
+        self.hide()
+
+    def start(self):
+        self.hide_timer.stop()
+        self.buddy.set_mode("search")
+        self.title.setText("En hızlı ayar aranıyor…")
+        self.body.setText("Bu bilgisayar için bir kereliğine ölçüm yapıyorum. Birkaç saniye sürer; "
+                          "sonra videolarınız en hızlı yoldan işlenir.")
+        self.bar.setRange(0, 0)  # adım sayısı belli olana kadar akan çubuk
+        self.step_label.setText("Hazırlanıyor…")
+        self.skip.show()
+        self.setGeometry(self.parentWidget().rect())
+        self.raise_()
+        self.show()
+
+    def set_step(self, index, total, key):
+        self.bar.setRange(0, total)
+        self.bar.setValue(index)
+        self.step_label.setText(f"{profile_label(key)} deneniyor · {index + 1} / {total}")
+
+    def finish(self, found):
+        self.skip.hide()
+        self.bar.setRange(0, 1)
+        self.bar.setValue(1)
+        if found:
+            self.buddy.set_mode("ok")
+            self.title.setText("Buldum! 🎉")
+            self.body.setText(f"Bu bilgisayarda en hızlısı: <b>{profile_label(main._encoder)}</b>")
+            self.step_label.setText("")
+        else:
+            self.buddy.set_mode("wave")
+            self.title.setText("Şimdilik güvenli ayarla devam")
+            self.body.setText("Ölçümü bir sonraki açılışta tekrar deneyeceğim.")
+            self.step_label.setText("")
+        self.hide_timer.start()
 
 
 class WhatsNewDialog(QDialog):
@@ -1197,6 +1362,14 @@ class SettingsDialog(QDialog):
         self.speed = QLabel()
         self.speed_note = QLabel()
         self.speed_note.setObjectName("small")
+        remeasure = QToolButton(text="Yeniden ölç")
+        remeasure.setToolTip("Bu bilgisayar için en hızlı ayarı yeniden arar (birkaç saniye sürer)")
+        remeasure.setEnabled(not window.worker and not window.tuner)
+        remeasure.clicked.connect(lambda: (self.accept(), window.start_tuning(force=True)))
+        speed_row = QHBoxLayout()
+        speed_row.setSpacing(6)
+        speed_row.addWidget(self.speed)
+        speed_row.addWidget(remeasure)
         self.speed_timer = QTimer(self, interval=500)  # açılıştaki deneme sürüyorsa bitince yaz
         self.speed_timer.timeout.connect(self._show_speed)
         self._show_speed()
@@ -1216,7 +1389,7 @@ class SettingsDialog(QDialog):
             ("Tema", QLabel("Açık, koyu ya da bilgisayara göre"), themes),
             ("Çıktı klasörü", self.out_path, out_buttons),
             ("Aylara göre klasörle", self.explain, self.monthly),
-            ("Hızlandırma", self.speed_note, self.speed),
+            ("Hızlandırma", self.speed_note, speed_row),
             ("Güncelleme", self.update_status, self.update_btn),
         )
         for i, (title, sub, control) in enumerate(items):
@@ -1509,6 +1682,10 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
         self.overlay = DropOverlay(central)
         self.toast = BuddyToast(central)
+        self.tune_overlay = TuneOverlay(central)
+        self.tune_overlay.skip_requested.connect(self.skip_tuning)
+        self.tuner = None
+        self.pending_update = None
 
         self.flash_timer = QTimer(self, singleShot=True, interval=4000)
         self.flash_timer.timeout.connect(self.refresh)
@@ -1668,7 +1845,7 @@ class MainWindow(QMainWindow):
     # --- Sürükle-bırak ----------------------------------------------------------
 
     def dragEnterEvent(self, event):
-        if not self.worker and event.mimeData().hasUrls():
+        if not self.worker and not self.tuner and event.mimeData().hasUrls():
             event.acceptProposedAction()
             self.overlay.appear()
 
@@ -1689,6 +1866,8 @@ class MainWindow(QMainWindow):
         super().resizeEvent(event)
         if self.overlay.isVisible():
             self.overlay.setGeometry(self.centralWidget().rect())
+        if self.tune_overlay.isVisible():
+            self.tune_overlay.setGeometry(self.centralWidget().rect())
         self.toast.place()
 
     # --- Ayarlar ----------------------------------------------------------------
@@ -1715,9 +1894,39 @@ class MainWindow(QMainWindow):
         for row in self.all_dates():
             row.render()
 
+    # --- En hızlı ayar ölçümü --------------------------------------------------------
+
+    def start_tuning(self, force=False):
+        # Açılışta: daha önce bu donanım için ölçüldüyse hemen biter, ekran hiç görünmez.
+        # force=True: Ayarlar'daki "Yeniden ölç".
+        if self.tuner or self.worker:
+            return
+        self.tuner = TuneWorker(force)
+        self.tuner.tuning.connect(self.tune_overlay.start)
+        self.tuner.step.connect(self.tune_overlay.set_step)
+        self.tuner.done.connect(self.tuning_done)
+        self.tuner.start()
+
+    def skip_tuning(self):
+        if self.tuner:
+            self.tuner.cancelled = True
+
+    def tuning_done(self, results):
+        if self.tune_overlay.isVisible():
+            self.tune_overlay.finish(bool(results))
+        self.tuner.wait()
+        self.tuner.deleteLater()
+        self.tuner = None
+        self.refresh()
+        if self.pending_update:
+            info, self.pending_update = self.pending_update, None
+            QTimer.singleShot(2500, self, lambda: self.announce_update(info))
+
     # --- İşleme -----------------------------------------------------------------
 
     def run_or_stop(self):
+        if self.tuner:
+            return  # ölçüm sürerken ekran zaten kapalı; birkaç saniye sonra açılır
         if self.worker:
             self.worker.stop()
             self.refresh()
@@ -1867,6 +2076,9 @@ class MainWindow(QMainWindow):
         QApplication.alert(self)  # pencere arkadaysa görev çubuğunda yanıp söner
 
     def closeEvent(self, event):
+        if self.tuner:
+            self.tuner.cancelled = True
+            self.tuner.wait()
         if self.worker:
             if not ask(self, "İşlem sürüyor", "Videolar hâlâ işleniyor. Durdurup çıkılsın mı?",
                        "Yarım kalan video kaydedilmez; bitmiş olanlar klasöründe durur.",
@@ -1896,7 +2108,10 @@ class MainWindow(QMainWindow):
         self.badge.show()
 
     def announce_update(self, info):
-        # Açılışta bir kez: Zaman Adam haber verir
+        # Açılışta bir kez: Zaman Adam haber verir (ölçüm sürüyorsa ölçüm bitince)
+        if self.tuner:
+            self.pending_update = info
+            return
         self.set_update_available(info)
         self.toast.say(f"Yeni sürüm hazır ({info.latest})! Güncellemek için bana tıklayın "
                        "ya da Ayarlar'a bakın.", "wave", 7000, on_click=self.open_update)
@@ -2003,26 +2218,13 @@ def self_test():
             dst = output_path(Path(d), src, start)
             used = main.process(src, dst, start, on_progress=lambda f: None)
             assert dst.stat().st_size > 0, "çıktı boş"
-            results = main.tune(Path(d) / "hiz.json", "self-test")
+            results = main.tune(Path(d) / "hiz.json", main.working_families())
             assert results, "hız ölçümü yapılamadı"
         log.write_text(f"OK {info} · kodlayıcı: {used} · ölçüm: {results} -> {main._encoder}\n", encoding="utf-8")
         return 0
     except Exception:
         log.write_text(traceback.format_exc(), encoding="utf-8")
         return 1
-
-
-def tune_encoder():
-    # Açılışta arka planda: önce güvenli seçim, sonra bu bilgisayar için bir kerelik hız ölçümü
-    log.info("Kodlayıcı: %s", main.profile_name(main.pick_encoder()))
-    try:
-        results = main.tune(log_path().with_name("hiz-olcumu.json"), __version__)
-    except Exception:
-        log.exception("Hız ölçümü yapılamadı")
-        return
-    if results:
-        table = ", ".join(f"{k} {v} sn" for k, v in sorted(results.items(), key=lambda kv: kv[1]))
-        log.info("Hız ölçümü: %s -> seçilen: %s", table, main._encoder)
 
 
 def run():
@@ -2035,7 +2237,6 @@ def run():
     app.setStyle("Fusion")
     sys.excepthook = show_error
     setup_log()
-    threading.Thread(target=tune_encoder, daemon=True).start()
 
     window = MainWindow()
     apply_theme(window.theme_choice)
@@ -2065,6 +2266,7 @@ def run():
             app.quit()
             return
         window.show()
+        window.start_tuning()
         if info and info.newer:
             QTimer.singleShot(1200, window, lambda: window.announce_update(info))
         if "--updated" in sys.argv:  # kurulum, uygulama içinden güncellemeden sonra böyle açar

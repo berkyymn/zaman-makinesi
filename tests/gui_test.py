@@ -271,6 +271,33 @@ gui.apply_theme("dark"); shot(sd, "10_ayarlar_koyu.png"); sd.close(); gui.apply_
 
 wn = gui.WhatsNewDialog(w, "Zaman Adam geldi."); wn.show(); shot(wn, "11_yenilikler.png"); wn.close()
 
+# --- En hızlı ayar ölçümü ------------------------------------------------------------
+gui.tune_cache().unlink(missing_ok=True)
+main._encoder, main.tuned = None, False
+w.start_tuning()
+saw_overlay = False
+while w.tuner:
+    saw_overlay = saw_overlay or w.tune_overlay.isVisible()
+    if w.tune_overlay.isVisible() and "deneniyor" in w.tune_overlay.step_label.text():
+        shot(w, "12_olcum.png")
+    pump(30)
+check("ölçüm: ilk açılışta ekran göründü", saw_overlay)
+check("ölçüm: en hızlı ayar seçildi ve kaydedildi", main.tuned and gui.tune_cache().exists())
+check("ölçüm: bitince 'Buldum'", "Buldum" in w.tune_overlay.title.text()); shot(w, "13_olcum_bitti.png")
+pump(2500)
+check("ölçüm: ekran kendiliğinden kapandı", not w.tune_overlay.isVisible())
+main._encoder, main.tuned = None, False
+w.start_tuning(); saw_overlay = False
+while w.tuner:
+    saw_overlay = saw_overlay or w.tune_overlay.isVisible()
+    pump(20)
+check("ölçüm: ikinci açılışta tekrar ölçmedi", not saw_overlay and main.tuned)
+w.start_tuning(force=True); pump(100)
+w.skip_tuning()
+while w.tuner:
+    pump(20)
+check("ölçüm: 'Şimdilik geç' çalışıyor", "güvenli" in w.tune_overlay.title.text())
+
 print(f"\n{sum(results)}/{len(results)} geçti")
 shutil.rmtree(WORK, ignore_errors=True)
 os._exit(0 if all(results) else 1)
