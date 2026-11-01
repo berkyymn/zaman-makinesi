@@ -39,7 +39,7 @@ def fake_encoder(speeds, broken=()):
 
 
 cache = Path(tempfile.mkdtemp()) / "hiz.json"
-main.TUNE_SAMPLE_SECONDS = 4  # testi kısaltmak için (oranlar değişmez)
+main.TUNE_SAMPLE_SECONDS = 10  # sahte süreler (oranlar gerçek değil; ölçüm titreşimi az olsun diye 10)
 
 # 1) Intel grafik var: denemede işlemci çok hızlı görünse bile işlemci hiç ölçülmez, seçilmez
 main.encode, called = fake_encoder({"qsv": 40, "qsv_fast": 44, "qsv_lp": 52, "cpu": 200, "cpu_hwdec": 150})
@@ -50,7 +50,7 @@ check("grafik varken işlemci ölçülmez", not any(k.startswith("cpu") for k in
 check("grafik ayarları arasından en hızlısı seçilir", main._encoder == "qsv_lp")
 
 # 2) %10 kuralı: sadece biraz daha hızlı olan, daha az bilinen ayara geçilmez
-main.encode, called = fake_encoder({"qsv": 40, "qsv_fast": 42, "qsv_lp": 43})
+main.encode, called = fake_encoder({"qsv": 40, "qsv_fast": 41, "qsv_lp": 41.5})  # en fazla %4 fark
 r, _ = main.tune(cache, ["cpu", "qsv"])
 check("%10'dan az fark için güvenli ayarda kalınır", main._encoder == "qsv")
 

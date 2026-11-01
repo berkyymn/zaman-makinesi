@@ -90,6 +90,7 @@ files = sorted(VIDEOS.glob("*.m*"))
 
 w = gui.MainWindow()
 w.settings.clear()
+gui.stats_path().unlink(missing_ok=True)
 w = gui.MainWindow()
 w.out_dir = OUT
 gui.apply_theme("light")
@@ -158,7 +159,8 @@ check("Bitenleri temizle görünüyor", w.clear_done_btn.isVisible())
 check("'Hepsini temizle' adı", w.clear_btn.text() == "Hepsini temizle")
 gui.apply_theme("dark"); shot(w, "06_bitti_koyu.png"); gui.apply_theme("light")
 pump(5200)
-check("balon birkaç saniye sonra kayboldu", not w.toast.isVisible())
+check("balon birkaç saniye sonra kayboldu (ya da bir kerelik rapor hatırlatması geldi)",
+      not w.toast.isVisible() or "Hız raporunuz" in w.toast.text.text())
 
 answers[:] = [False]; w.run_or_stop(); pump()
 check("işlenecek yokken başlamadı", w.worker is None)
@@ -303,6 +305,21 @@ check("ölçüm: süre dolunca güvenli varsayılan seçildi ve kaydedildi",
       main._encoder == main.pick_encoder() and saved["timed_out"] and saved["profile"] == main._encoder
       and "Güvenli" in w.tune_overlay.title.text())
 check("ölçüm: iptal butonu yok", not hasattr(w.tune_overlay, "skip"))
+
+# --- Teşhis bilgisi --------------------------------------------------------------------
+stats = gui.load_stats()
+check("teşhis: biten işler kaydedildi", stats["total_jobs"] >= 3 and stats["jobs"][0]["result"] == "tamam"
+      and stats["jobs"][0]["res"] == "1280x720")
+check("teşhis: hata da kaydedildi", any(j["result"].startswith("hata") for j in stats["jobs"]))
+report = gui.diagnostics_report()
+print("   " + report.replace("\n", "\n   ")[:900])
+check("teşhis: rapor sistem, ölçüm ve işleri içeriyor",
+      "teşhis raporu" in report and "İşlemci:" in report and "Hız ölçümü" in report and "tamam" in report)
+check("teşhis: raporda dosya adı ve tarih yok",
+      not any(x in report for x in ("a_deniz", "uzun", "silinecek", "12.10.2026", str(OUT))))
+w.copy_report()
+check("teşhis: panoya kopyalandı", "teşhis raporu" in app.clipboard().text())
+check("teşhis: hatırlatma bir kez yapıldı", w.settings.value("report_reminded", False, type=bool))
 
 print(f"\n{sum(results)}/{len(results)} geçti")
 shutil.rmtree(WORK, ignore_errors=True)

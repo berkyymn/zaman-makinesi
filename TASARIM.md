@@ -154,13 +154,15 @@ sağda ayar):
 | Tema | **Sistem / Açık / Koyu** (Sistem: Windows teması değişince uygulama da değişir) |
 | Çıktı klasörü | yol (ortadan kısaltılmış) + **Aç** + **Değiştir** (işlem sürerken pasif) |
 | Aylara göre klasörle | onay kutusu; altında "Ör. 2026-10 Ekim klasörüne…" / "Kapalı: hepsi doğrudan…" |
-| Hızlandırma | "⚡ Intel grafik (Quick Sync)" / "⚙️ İşlemci" + **Yeniden ölç**; altında "Bu bilgisayar için ölçülüp en hızlısı seçildi" |
+| Hızlandırma | kısa ad "⚡ Intel Quick Sync" / "⚡ NVIDIA NVENC" / "⚡ AMD AMF" / "⚙️ İşlemci" + **Yeniden ölç**; altında "Bu bilgisayar için ölçülüp seçildi · düşük güç" |
 | Güncelleme | "Son kontrol: bugün 14:07" + **Denetle**; yeni sürüm varsa "🎉 Yeni sürüm hazır: 1.0.8" + mavi **Şimdi güncelle** |
 
-Altta **Hata kaydını aç** (bağlantı) ve **Kapat**. Ayarlar butonunda yeni sürüm varken kırmızı nokta olur.
+Altta **Hata kaydını aç**, **Teşhis bilgisini kopyala** (bağlantılar) ve **Kapat**. Ayarlar butonunda yeni sürüm
+varken kırmızı nokta olur. Pencere en az 580 px'tir; yazı tipi büyük bilgisayarlarda (Windows ölçekleme) hiçbir
+yazı kırpılmasın diye kendiliğinden genişler.
 
 Saklanan ayarlar (QSettings `ZamanMakinesi/ZamanMakinesi`): `theme`, `output_dir`, `monthly`,
-`last_input_dir`, `last_update_check`.
+`last_input_dir`, `last_update_check`, `report_reminded`.
 
 ## 5. Hız: video işleme ve en hızlı ayar
 
@@ -215,7 +217,33 @@ Saklanan ayarlar (QSettings `ZamanMakinesi/ZamanMakinesi`): `theme`, `output_dir
 - Grafik kodlayıcısı olmayan donanımlar işlemciye düşer: "F" ile biten Intel işlemciler, grafiksiz Ryzen,
   GT 710/730/1030, RX 6400/6500 XT.
 
-## 6. Güncelleme
+## 6. Teşhis bilgisi (kullanıcıdan teknik veri)
+
+- **Sunucu yok, izin sorulmaz.** Sadece teknik veriler **yerelde** tutulur; kullanıcı istediğinde panoya kopyalar
+  ve WhatsApp/e-posta ile geliştiriciye gönderir. Geliştirici bunları değerlendirip ölçüm kurallarını düzeltir.
+- **Toplanan:** her biten/hatalı iş için saat, video çözünürlüğü/fps/kodek/süresi, kullanılan ayar, gerçek hız
+  (x), sonuç (tamam / hata türü), işlemciye düşüp düşmediği. Son 50 iş + toplam iş sayısı
+  (`istatistik.json`). Rapor anında ayrıca işletim sistemi, işlemci, RAM, grafik birim(ler)i + sürücü sürümü
+  (Windows'ta PowerShell `Win32_VideoController`) ve son hız ölçümü (`hiz-olcumu.json`) eklenir.
+- **Asla toplanmaz:** dosya/klasör adları, girilen tarihler, video içeriği, kullanıcı/bilgisayar adı.
+- **Ne zaman gönderilir:** Ayarlar → **Teşhis bilgisini kopyala** ile her zaman. Ayrıca **ilk 3 video
+  işlendikten sonra bir kez** (o zaman rapor hem ölçümü hem gerçek hızları içerir) Zaman Adam balonu
+  hatırlatır: "Hız raporunuz hazır! Bana tıklayın, kopyalayayım…"; tıklanınca kopyalar ve "Kopyalandı!
+  WhatsApp ya da e-postaya yapıştırıp geliştiriciye gönderin" der.
+- Rapor biçimi:
+  ```
+  Zaman Makinesi teşhis raporu · sürüm 1.0.12
+  Sistem: Windows 11 (build 22631) · RAM 16 GB
+  İşlemci: 11th Gen Intel(R) Core(TM) i5-1135G7 @ 2.40GHz · 8 çekirdek
+  Grafik: Intel(R) Iris(R) Xe Graphics (sürücü 31.0.101.4502)
+  Çalışan kodlayıcılar: cpu, qsv
+  Hız ölçümü (v2): qsv_lp 4.4x, qsv_fast 3.9x, qsv 3.5x -> qsv_lp
+  Şu an kullanılan: qsv_lp
+  İşler (toplam 12, son 12):
+    01.11 15:50 · 1920x1080 30fps h264 10:00 · qsv_lp · 3.4x · tamam
+  ```
+
+## 7. Güncelleme
 
 - Her yayında GitHub Release'e `version.json` konur:
   `{"latest", "min_supported", "url", "sha256", "notes"}`.
@@ -233,7 +261,7 @@ Saklanan ayarlar (QSettings `ZamanMakinesi/ZamanMakinesi`): `theme`, `output_dir
   güncellenemez.
 - GitHub'ın "latest" linki birkaç dakika önbellekte kalabilir; yeni sürüm herkese birkaç dakika içinde ulaşır.
 
-## 7. Zaman Adam ve animasyonlar
+## 8. Zaman Adam ve animasyonlar
 
 - **Zaman Adam:** uygulama simgesinin (mavi kare, kadran, geri dönen ok) kollu bacaklı, yüzlü hali. Pozlar:
   `run` (koşar), `wave` (el sallar), `ok` (bir kez zıplayıp başparmağını kaldırır, sonra durur),
@@ -242,7 +270,7 @@ Saklanan ayarlar (QSettings `ZamanMakinesi/ZamanMakinesi`): `theme`, `output_dir
 - Yeni satırlar yumuşakça belirir; silinen tarih/video solup kapanarak gider.
 - Açık ve koyu tema renkleri `gui.LIGHT` / `gui.DARK`; kendi kendini çizen parçalar `theme`'den okur.
 
-## 8. Dağıtım
+## 9. Dağıtım
 
 - Depo: `github.com/berkyymn/zaman-makinesi` (public, MIT lisans). Kişisel hesap.
 - Kullanıcıya verilen tek link (hep en son sürüm):
@@ -254,9 +282,9 @@ Saklanan ayarlar (QSettings `ZamanMakinesi/ZamanMakinesi`): `theme`, `output_dir
   NVENC/Quick Sync/AMF destekli) gelir. Font: Windows'ta `C:\Windows\Fonts\courbd.ttf`.
 - `AppId` asla değiştirilmez (değişirse güncelleme ayrı uygulama sanılır).
 - Kullanıcı verileri (`%LOCALAPPDATA%\Zaman Makinesi\`): `zaman-makinesi.log` (hata kaydı, ~3 MB'ı geçmez),
-  `hiz-olcumu.json` (en hızlı ayar).
+  `hiz-olcumu.json` (en hızlı ayar), `istatistik.json` (teşhis için son 50 işin teknik bilgisi).
 
-## 9. Sürüm yayınlama kontrol listesi
+## 10. Sürüm yayınlama kontrol listesi
 
 Her yayında **sırayla, eksiksiz**:
 
@@ -280,7 +308,7 @@ Her yayında **sırayla, eksiksiz**:
 7. **Derlemeyi izle:** GitHub Actions'ta "Paketlenmiş uygulamayı dene" adımı geçmeli (Türkçe dosya adı,
    işleme, hız ölçümü). Sonra `releases/download/vX.Y.Z/version.json` kontrol edilir.
 
-## 10. Dosyalar
+## 11. Dosyalar
 
 | Dosya | Görev |
 |---|---|

@@ -5,14 +5,17 @@ Videoya saat basma işini main.py yapar; burası sadece kullanıcıdan video ve 
 Kurallar için TASARIM.md'ye bakın.
 """
 
+import json
 import logging
 import math
 import os
+import platform
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import traceback
 from contextlib import contextmanager
@@ -313,6 +316,115 @@ def setup_log():
     log.addHandler(handler)
     log.setLevel(logging.INFO)
     log.info("Açıldı: sürüm %s, %s", __version__, sys.platform)
+
+
+# --- Teşhis bilgisi ---------------------------------------------------------------
+# Sadece teknik veriler yerelde tutulur (dosya/klasör adı, tarih, video içeriği asla).
+# Kullanıcı Ayarlar'dan "Teşhis bilgisini kopyala" ile panoya alıp geliştiriciye gönderir; sunucu yoktur.
+
+STATS_LIMIT = 50  # saklanan son iş sayısı
+_stats_lock = threading.Lock()
+
+
+def stats_path():
+    return log_path().with_name("istatistik.json")
+
+
+def load_stats():
+    try:
+        return json.loads(stats_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {"total_jobs": 0, "jobs": []}
+
+
+def record_job(entry):
+    with _stats_lock:
+        data = load_stats()
+        data["total_jobs"] = data.get("total_jobs", 0) + 1
+        data["jobs"] = (data.get("jobs", []) + [entry])[-STATS_LIMIT:]
+        try:
+            stats_path().write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        except OSError:
+            pass
+
+
+def _run_text(cmd, timeout=10):
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                              timeout=timeout, creationflags=main.NO_WINDOW).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+def system_info():
+    # İşletim sistemi, işlemci, bellek ve grafik birimleri (sürücü sürümüyle)
+    info = {"os": platform.platform(), "cpu": platform.processor(), "cores": os.cpu_count(), "ram_gb": None,
+            "gpus": []}
+    if sys.platform == "win32":
+        import ctypes
+        import winreg
+        build = sys.getwindowsversion().build
+        info["os"] = f"Windows {'11' if build >= 22000 else '10'} (build {build})"
+        try:
+            key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"HARDWARE\DESCRIPTION\System\CentralProcessor\0")
+            info["cpu"] = winreg.QueryValueEx(key, "ProcessorNameString")[0].strip()
+        except OSError:
+            pass
+
+        class MEMORYSTATUSEX(ctypes.Structure):
+            _fields_ = [("dwLength", ctypes.c_ulong), ("dwMemoryLoad", ctypes.c_ulong),
+                        ("ullTotalPhys", ctypes.c_ulonglong), ("ullAvailPhys", ctypes.c_ulonglong),
+                        ("ullTotalPageFile", ctypes.c_ulonglong), ("ullAvailPageFile", ctypes.c_ulonglong),
+                        ("ullTotalVirtual", ctypes.c_ulonglong), ("ullAvailVirtual", ctypes.c_ulonglong),
+                        ("ullAvailExtendedVirtual", ctypes.c_ulonglong)]
+        mem = MEMORYSTATUSEX(dwLength=ctypes.sizeof(MEMORYSTATUSEX))
+        if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(mem)):
+            info["ram_gb"] = round(mem.ullTotalPhys / 2**30)
+        out = _run_text(["powershell", "-NoProfile", "-Command",
+                         "Get-CimInstance Win32_VideoController | Select-Object Name,DriverVersion | ConvertTo-Json"])
+        try:
+            gpus = json.loads(out) if out else []
+            gpus = gpus if isinstance(gpus, list) else [gpus]
+            info["gpus"] = [f"{g.get('Name')} (sürücü {g.get('DriverVersion')})" for g in gpus]
+        except ValueError:
+            pass
+    elif sys.platform == "darwin":
+        info["os"] = f"macOS {platform.mac_ver()[0]}"
+        info["cpu"] = _run_text(["sysctl", "-n", "machdep.cpu.brand_string"]) or info["cpu"]
+        mem = _run_text(["sysctl", "-n", "hw.memsize"])
+        info["ram_gb"] = round(int(mem) / 2**30) if mem.isdigit() else None
+        info["gpus"] = [line.split(":", 1)[1].strip() for line in
+                        _run_text(["system_profiler", "SPDisplaysDataType"]).splitlines() if "Chipset Model" in line]
+    return info
+
+
+def diagnostics_report():
+    """Geliştiriciye gönderilecek kısa, okunur teknik rapor."""
+    info = system_info()
+    lines = [f"Zaman Makinesi teşhis raporu · sürüm {__version__}",
+             f"Sistem: {info['os']} · RAM {info['ram_gb'] or '?'} GB",
+             f"İşlemci: {info['cpu']} · {info['cores']} çekirdek",
+             f"Grafik: {' | '.join(info['gpus']) or '?'}"]
+    try:
+        tune = json.loads(tune_cache().read_text(encoding="utf-8"))
+        table = ", ".join(f"{k} {v}x" for k, v in sorted(tune.get("results", {}).items(), key=lambda kv: -kv[1]))
+        lines += [f"Çalışan kodlayıcılar: {', '.join(tune.get('families', []))}",
+                  f"Hız ölçümü (v{tune.get('tune_version')}): {table or '-'} -> {tune.get('profile')}"
+                  + (" (süre doldu)" if tune.get("timed_out") else "")]
+    except (OSError, ValueError):
+        lines.append("Hız ölçümü: henüz yok")
+    lines.append(f"Şu an kullanılan: {main._encoder or '?'}")
+    stats = load_stats()
+    jobs = stats.get("jobs", [])
+    lines.append(f"İşler (toplam {stats.get('total_jobs', 0)}, son {len(jobs)}):")
+    for j in jobs[-STATS_LIMIT:]:
+        speed = f"{j['speed']}x" if j.get("speed") else "-"
+        extra = " · işlemciye düştü" if j.get("fallback") else ""
+        video = (f"{j['res']} {j.get('fps') or '?'}fps {j.get('codec') or '?'} {duration_text(j.get('duration', 0))}"
+                 if j.get("codec") else "video bilgisi yok")
+        lines.append(f"  {j.get('time', '')} · {video} · {j.get('profile', '?')} · {speed} · "
+                     f"{j.get('result', '?')}{extra}")
+    return "\n".join(lines)
 
 
 def month_folder(start):
@@ -1268,17 +1380,24 @@ class Worker(QThread):
             self.progress.emit(row, 0.0)
             log.info("İşleniyor: %s -> %s", src, dst)
             began = time.monotonic()
+            planned = main.pick_encoder()
+            try:
+                info = main.video_info(src)
+            except RuntimeError:
+                info = {}
+            # Teşhis için sadece teknik bilgi: dosya adı/klasör/tarih yok
+            record = {"time": f"{datetime.now():%d.%m %H:%M}", "res": f"{info.get('width', '?')}x{info.get('height', '?')}",
+                      "fps": info.get("fps"), "codec": info.get("codec"), "duration": round(info.get("duration", 0))}
             try:
                 used = main.process(src, dst, start,
                              on_progress=lambda f, row=row: self.progress.emit(row, f),
                              should_stop=lambda row=row: self.stopped or row in self.skipped)
                 elapsed = max(time.monotonic() - began, 0.1)
                 took = duration_text(max(round(elapsed), 1))
-                try:
-                    speed = f"{main.video_duration(src) / elapsed:.1f}x gerçek zaman"
-                except RuntimeError:
-                    speed = "?"
-                log.info("Bitti (%s, %s, %s): %s", took, speed, used, dst)
+                speed = round(info.get("duration", 0) / elapsed, 1)
+                log.info("Bitti (%s, %sx gerçek zaman, %s): %s", took, speed, used, dst)
+                record_job({**record, "profile": used, "speed": speed, "result": "tamam",
+                            "fallback": used != planned})
                 self.job_finished.emit(row, DONE, took)
             except main.Cancelled:
                 if self.stopped:
@@ -1289,7 +1408,9 @@ class Worker(QThread):
                 self.job_finished.emit(row, CANCELLED, "")
             except Exception as e:
                 log.exception("Hata: %s", src)
-                self.job_finished.emit(row, ERROR, friendly_error(e, src, dst))
+                message = friendly_error(e, src, dst)
+                record_job({**record, "profile": planned, "result": f"hata: {message} ({type(e).__name__})"})
+                self.job_finished.emit(row, ERROR, message)
 
 
 # =============================================================================
@@ -1321,7 +1442,7 @@ class SettingsDialog(QDialog):
         super().__init__(window)
         self.main = window
         self.setWindowTitle("Ayarlar")
-        self.setFixedWidth(540)
+        self.setMinimumWidth(580)  # yazı tipi büyük olan bilgisayarlarda (Windows ölçekleme) gerekirse genişler
         self.check = None
 
         # Tema: bitişik üç seçenek
@@ -1420,16 +1541,23 @@ class SettingsDialog(QDialog):
         log_btn = QToolButton(text="Hata kaydını aç")
         log_btn.setToolTip("Bir sorun olursa bu dosyayı geliştiriciye gönderebilirsiniz")
         log_btn.clicked.connect(self._open_log)
+        self.report_btn = QToolButton(text="Teşhis bilgisini kopyala")
+        self.report_btn.setToolTip("Bilgisayarın teknik bilgileri ve işlem hızları panoya kopyalanır "
+                                   "(dosya adları, tarihler ve videolar yok). WhatsApp ya da e-postaya yapıştırıp "
+                                   "geliştiriciye gönderin.")
+        self.report_btn.clicked.connect(self._copy_report)
         close = QPushButton("Kapat")
         close.setObjectName("primary")
         close.clicked.connect(self.accept)
         bottom = QHBoxLayout()
         bottom.addWidget(log_btn)
+        bottom.addWidget(self.report_btn)
         bottom.addStretch()
         bottom.addWidget(close)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(22, 18, 22, 18)
+        layout.setSizeConstraint(QVBoxLayout.SetMinimumSize)  # hiçbir yazı kırpılmasın; gerekirse pencere genişler
         layout.setSpacing(14)
         layout.addLayout(top)
         layout.addWidget(rows)
@@ -1499,9 +1627,10 @@ class SettingsDialog(QDialog):
         else:
             self.speed_timer.start()
         cpu = main.PROFILES[key][0] == "cpu"
-        self.speed.setText("⚙️  İşlemci" if cpu else f"⚡  {main.profile_name(key)}")
+        self.speed.setText(f"{'⚙️' if cpu else '⚡'}  {main.short_name(key)}")
+        variant = VARIANT_NAMES.get(key.split("_", 1)[1] if "_" in key else "", "")
         if main.tuned:
-            self.speed_note.setText("Bu bilgisayar için ölçülüp en hızlısı seçildi")
+            self.speed_note.setText("Bu bilgisayar için ölçülüp seçildi" + variant)
         elif cpu:
             self.speed_note.setText("Grafik hızlandırma bulunamadı")
         else:
@@ -1509,6 +1638,11 @@ class SettingsDialog(QDialog):
         self.speed.setToolTip("Uygulama ilk açılışta bu bilgisayardaki NVIDIA, Intel ve AMD hızlandırmasını ve "
                               "işlemciyi birkaç ayarla dener, en hızlısını kullanır. Bir videoda sorun çıkarsa "
                               "o video işlemciyle yeniden yapılır.")
+
+    def _copy_report(self):
+        self.main.copy_report()
+        self.report_btn.setText("✓ Kopyalandı, gönderebilirsiniz")
+        QTimer.singleShot(4000, self, lambda: self.report_btn.setText("Teşhis bilgisini kopyala"))
 
     def _open_log(self):
         path = log_path()
@@ -2069,6 +2203,7 @@ class MainWindow(QMainWindow):
                     row.set_state(READY)
         self.refresh()
         QApplication.alert(self)  # pencere arkadaysa görev çubuğunda yanıp söner
+        self.remind_report()
 
     def closeEvent(self, event):
         if self.tuner:
@@ -2110,6 +2245,27 @@ class MainWindow(QMainWindow):
         self.set_update_available(info)
         self.toast.say(f"Yeni sürüm hazır ({info.latest})! Güncellemek için bana tıklayın "
                        "ya da Ayarlar'a bakın.", "wave", 7000, on_click=self.open_update)
+
+    def copy_report(self):
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            QApplication.clipboard().setText(diagnostics_report())
+        finally:
+            QApplication.restoreOverrideCursor()
+
+    def remind_report(self):
+        # İlk 3 video bittikten sonra bir kez: rapor artık işe yarar bilgi içeriyor (ölçüm + gerçek hızlar)
+        if self.settings.value("report_reminded", False, type=bool) or load_stats().get("total_jobs", 0) < 3:
+            return
+        self.settings.setValue("report_reminded", True)
+
+        def copy():
+            self.copy_report()
+            self.toast.say("Kopyalandı! WhatsApp ya da e-postaya yapıştırıp geliştiriciye gönderin. 🙏", "ok", 5000)
+
+        QTimer.singleShot(5500, self, lambda: self.toast.say(
+            "Hız raporunuz hazır! Bana tıklayın, kopyalayayım; uygulamayı geliştirmemize yardımcı olur.",
+            "wave", 9000, on_click=copy))
 
     def open_update(self):
         if self.worker:

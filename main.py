@@ -220,8 +220,15 @@ _encoder_lock = threading.Lock()
 tuned = False  # bu bilgisayar için ölçülerek mi seçildi
 
 
+SHORT_NAMES = {"nvenc": "NVIDIA NVENC", "qsv": "Intel Quick Sync", "amf": "AMD AMF", "cpu": "İşlemci"}
+
+
 def profile_name(key):
     return FAMILIES[PROFILES[key][0]]
+
+
+def short_name(key):
+    return SHORT_NAMES[PROFILES[key][0]]
 
 
 def encoder_works(key):
@@ -377,15 +384,24 @@ def tune(cache_file, families, on_step=None, should_stop=None):
     return results, timed_out
 
 
-def video_duration(src):
+def video_info(src):
+    # ffmpeg'in dosya özetinden süre, çözünürlük, fps ve kodek (ayrıca ffprobe gerekmesin)
     out = subprocess.run([find_ffmpeg(), "-hide_banner", "-i", str(src)],
                          capture_output=True, text=True, encoding="utf-8", errors="replace",
                          creationflags=NO_WINDOW).stderr
     m = re.search(r"Duration: (\d+):(\d+):(\d+\.?\d*)", out)
-    if not m or "Video:" not in out:
+    video = re.search(r"Video: (\w+).*?, (\d{2,5})x(\d{2,5})", out)
+    if not m or not video:
         raise RuntimeError("video açılamadı")
     h, mnt, sec = m.groups()
-    return int(h) * 3600 + int(mnt) * 60 + float(sec)
+    fps = re.search(r"([\d.]+) fps", out)
+    return {"duration": int(h) * 3600 + int(mnt) * 60 + float(sec), "codec": video.group(1),
+            "width": int(video.group(2)), "height": int(video.group(3)),
+            "fps": round(float(fps.group(1))) if fps else 0}
+
+
+def video_duration(src):
+    return video_info(src)["duration"]
 
 
 def drawtext_filter(start):
