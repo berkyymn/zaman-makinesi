@@ -465,13 +465,21 @@ def video_info(src):
     if not m or not video:
         raise RuntimeError("video açılamadı")
     h, mnt, sec = m.groups()
-    fps = re.search(r"([\d.]+) fps", out)
-    # Önce video akışının kendi bit hızı, yoksa dosyanın toplam bit hızı (kb/s)
     line = out[video.start():].split("\n", 1)[0]
+    # Kare hızı: "29.97 fps"; bazı (değişken kare hızlı, telefon) videolarda sadece "tbr" yazar
+    fps = re.search(r"([\d.]+) fps", line) or re.search(r"([\d.]+)k? tbr", line)
+    # Önce video akışının kendi bit hızı, yoksa dosyanın toplam bit hızı (kb/s)
     rate = re.search(r"(\d+) kb/s", line) or re.search(r"bitrate: (\d+) kb/s", out)
+    # Renk: "yuv420p10le(tv, bt2020nc/bt2020/arib-std-b67, progressive)" -> 10 bit, HLG
+    color = re.search(r", ((?:yuv|nv|p0|gbr|rgb)\w*)(?:\(([^)]*)\))?", line)
+    pix_fmt = color.group(1) if color else None
+    depth = re.search(r"p(1[02])", pix_fmt or "")
+    transfer = (color.group(2) or "") if color else ""
+    hdr = "HDR10" if "smpte2084" in transfer else "HLG" if "arib-std-b67" in transfer else None
     return {"duration": int(h) * 3600 + int(mnt) * 60 + float(sec), "codec": video.group(1),
             "width": int(video.group(2)), "height": int(video.group(3)),
-            "fps": round(float(fps.group(1))) if fps else 0, "bitrate": int(rate.group(1)) if rate else None}
+            "fps": round(float(fps.group(1))) if fps else 0, "bitrate": int(rate.group(1)) if rate else None,
+            "pix_fmt": pix_fmt, "bit_depth": int(depth.group(1)) if depth else 8, "hdr": hdr}
 
 
 def video_duration(src):
@@ -491,12 +499,14 @@ def drawtext_filter(start):
             f"x={MARGIN_LEFT + PADDING}:y={MARGIN_TOP + PADDING}")
 
 
-def encode(src, tmp, start, duration, profile, hw_decode, on_progress, should_stop, timeout=None, kbps=6000):
+def encode(src, tmp, start, duration, profile, hw_decode, on_progress, should_stop, timeout=None, kbps=6000,
+           stats=None):
     # hw_decode None ise ayarın kendi tercihi kullanılır. timeout: bu kadar saniyede bitmezse ffmpeg kapatılır
     # (sürücü takılıp hiç çıktı vermese bile). kbps: çıktının bit hızı tavanı (target_kbps).
+    # stats verilirse teşhis için doldurulur: videoyu hangi okuyucu (decoder) ve donanım (hwaccel) okudu.
     family, args, prefers_hw = PROFILES[profile]
     args = [*args, *rate_args(family, kbps)]
-    cmd = [find_ffmpeg(), "-y", "-hide_banner", "-loglevel", "error", "-nostats",
+    cmd = [find_ffmpeg(), "-y", "-hide_banner", "-loglevel", "level+info", "-nostats",
            "-progress", "pipe:1", "-stats_period", "0.25"]
     if prefers_hw if hw_decode is None else hw_decode:
         cmd += ["-hwaccel", "auto"]  # videoyu da mümkünse grafik birimi çözsün
@@ -530,15 +540,22 @@ def encode(src, tmp, start, duration, profile, hw_decode, on_progress, should_st
         finally:
             if watchdog:
                 watchdog.cancel()
+        err.seek(0)
+        log_text = err.read().decode("utf-8", "replace")
         if code != 0:
-            err.seek(0)
-            detail = err.read().decode("utf-8", "replace").strip().splitlines()[-3:]
+            lines = log_text.strip().splitlines()
+            detail = [l for l in lines if "[error]" in l or "[fatal]" in l][-3:] or lines[-3:]
             raise RuntimeError("ffmpeg hata verdi: " + " | ".join(detail))
+        if stats is not None:
+            decoder = re.search(r"Stream #0:0 -> #0:0 \((.+?) ->", log_text)
+            hwaccel = re.search(r"Using auto hwaccel type (\w+)", log_text)
+            stats["decoder"] = decoder.group(1) if decoder else None
+            stats["hwaccel"] = hwaccel.group(1) if hwaccel else None
 
 
-def process(src, dst, start, on_progress=None, should_stop=None):
+def process(src, dst, start, on_progress=None, should_stop=None, stats=None):
     # on_progress(oran): 0-1 arası ilerleme. should_stop(): True dönerse iş iptal edilir.
-    # Hangi kodlayıcıyla yapıldığını döner ("qsv", "cpu"...).
+    # Hangi kodlayıcıyla yapıldığını döner ("qsv", "cpu"...). stats: bkz. encode().
     info = video_info(src)
     duration, kbps = info["duration"], target_kbps(info)
 
@@ -554,7 +571,7 @@ def process(src, dst, start, on_progress=None, should_stop=None):
     try:
         for i, (prof, hw_decode) in enumerate(attempts):
             try:
-                encode(src, tmp, start, duration, prof, hw_decode, on_progress, should_stop, kbps=kbps)
+                encode(src, tmp, start, duration, prof, hw_decode, on_progress, should_stop, kbps=kbps, stats=stats)
                 tmp.replace(dst)
                 if not on_progress:
                     print()

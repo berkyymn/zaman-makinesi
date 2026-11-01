@@ -435,8 +435,12 @@ def diagnostics_report():
             speed += f" · boyut {j['size']}x"
         if j.get("kbps"):
             speed += f" · tavan {j['kbps']} kb/s"
+        if j.get("decoder"):
+            speed += f" · okuyucu {j['decoder']}" + (f" + {j['hwaccel']}" if j.get("hwaccel") else " (yazılım)")
         extra = " · işlemciye düştü" if j.get("fallback") else ""
         video = (f"{j['res']} {j.get('fps') or '?'}fps {j.get('codec') or '?'} {duration_text(j.get('duration', 0))}"
+                 + (f" {j['bit_depth']}-bit" if (j.get("bit_depth") or 8) > 8 else "")
+                 + (f" {j['hdr']}" if j.get("hdr") else "")
                  + (f" {j['source_kbps']} kb/s" if j.get("source_kbps") else "")
                  if j.get("codec") else "video bilgisi yok")
         lines.append(f"  {j.get('time', '')} · {video} · {j.get('profile', '?')} · {speed} · "
@@ -1405,11 +1409,12 @@ class Worker(QThread):
             # Teşhis için sadece teknik bilgi: dosya adı/klasör/tarih yok
             record = {"time": f"{datetime.now():%d.%m %H:%M}", "res": f"{info.get('width', '?')}x{info.get('height', '?')}",
                       "fps": info.get("fps"), "codec": info.get("codec"), "duration": round(info.get("duration", 0)),
-                      "source_kbps": info.get("bitrate")}
+                      "source_kbps": info.get("bitrate"), "bit_depth": info.get("bit_depth"), "hdr": info.get("hdr")}
+            details = {}
             try:
                 used = main.process(src, dst, start,
                              on_progress=lambda f, row=row: self.progress.emit(row, f),
-                             should_stop=lambda row=row: self.stopped or row in self.skipped)
+                             should_stop=lambda row=row: self.stopped or row in self.skipped, stats=details)
                 elapsed = max(time.monotonic() - began, 0.1)
                 took = duration_text(max(round(elapsed), 1))
                 speed = round(info.get("duration", 0) / elapsed, 1)
@@ -1418,7 +1423,7 @@ class Worker(QThread):
                 except OSError:
                     size = None
                 log.info("Bitti (%s, %sx gerçek zaman, boyut %sx girişin, %s): %s", took, speed, size, used, dst)
-                record_job({**record, "profile": used, "speed": speed, "size": size, "took": round(elapsed),
+                record_job({**record, **details, "profile": used, "speed": speed, "size": size, "took": round(elapsed),
                             "kbps": main.target_kbps(info) if info else None, "result": "tamam",
                             "fallback": used != planned})
                 self.job_finished.emit(row, DONE, took)

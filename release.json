@@ -1,4 +1,4 @@
 {
-  "min_supported": "1.0.6",
-  "notes": "Çıktı dosyaları artık girdi videonuzla yaklaşık aynı boyutta; bazı videolarda gereksiz büyüme düzeltildi. Hız ölçümü görüntü kalitesini de karşılaştırıyor; güncellemeden sonraki ilk açılışta bir kez yeniden yapılır."
+  "min_supported": "1.0.14",
+  "notes": "Zorunlu güncelleme: çıktı dosyaları girdi videonuzla yaklaşık aynı boyutta, hız ölçümü görüntü kalitesini de karşılaştırıyor. Teşhis raporu artık videonun renk bilgisini ve nasıl okunduğunu da içeriyor."
 }

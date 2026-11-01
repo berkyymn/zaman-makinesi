@@ -251,9 +251,11 @@ Saklanan ayarlar (QSettings `ZamanMakinesi/ZamanMakinesi`): `theme`, `output_dir
 
 - **Sunucu yok, izin sorulmaz.** Sadece teknik veriler **yerelde** tutulur; kullanıcı istediğinde panoya kopyalar
   ve WhatsApp/e-posta ile geliştiriciye gönderir. Geliştirici bunları değerlendirip ölçüm kurallarını düzeltir.
-- **Toplanan:** her biten/hatalı iş için saat, video çözünürlüğü/fps/kodek/süresi/bit hızı, kullanılan ayar,
-  işlem süresi, gerçek hız (x), çıktı/giriş boyut oranı, bit hızı tavanı, sonuç (tamam / hata türü), işlemciye
-  düşüp düşmediği. Son 50 iş + toplam iş sayısı
+- **Toplanan:** her biten/hatalı iş için saat, video çözünürlüğü/fps/kodek/süresi/bit hızı, **renk derinliği
+  (8/10-bit) ve HDR türü (HDR10/HLG)**, kullanılan ayar, işlem süresi, gerçek hız (x), çıktı/giriş boyut oranı,
+  bit hızı tavanı, **videoyu okuyan okuyucu (ör. `hevc (native)`) ve donanım (`d3d11va`; yoksa "yazılım")**,
+  sonuç (tamam / hata türü), işlemciye düşüp düşmediği. (ffmpeg `level+info` günlüğünden okunur; hata metni
+  için sadece `[error]`/`[fatal]` satırları kullanılır.) Kare hızı `fps` yoksa `tbr`'den okunur. Son 50 iş + toplam iş sayısı
   (`istatistik.json`). Rapor anında ayrıca işletim sistemi, işlemci, RAM, grafik birim(ler)i + sürücü sürümü
   (Windows'ta PowerShell `Win32_VideoController`) ve son hız ölçümü (`hiz-olcumu.json`) eklenir.
 - **Asla toplanmaz:** dosya/klasör adları, girilen tarihler, video içeriği, kullanıcı/bilgisayar adı.
@@ -270,10 +272,34 @@ Saklanan ayarlar (QSettings `ZamanMakinesi/ZamanMakinesi`): `theme`, `output_dir
   Hız ölçümü (v3): qsv_lp 4.4x 52.0 MB (büyük dosya, elendi), qsv_fast 3.9x 21.5 MB, qsv 3.5x 21.0 MB -> qsv_fast
   Şu an kullanılan: qsv_fast
   İşler (toplam 12, son 12):
-    01.11 15:50 · 1920x1080 60fps h264 10 dk 11 sn 5200 kb/s · qsv_fast · 2 dk 51 sn sürdü · 3.5x · boyut 0.9x · tavan 4680 kb/s · tamam
+    01.11 17:01 · 1920x1080 60fps h264 10 dk 11 sn 5196 kb/s · qsv_lp · 2 dk 47 sn sürdü · 3.7x · boyut 0.97x · tavan 5196 kb/s · okuyucu h264 (native) + d3d11va · tamam
   ```
 
-## 7. Güncelleme
+## 7. Bilinçli kararlar ve ertelenenler
+
+Gerçek kullanımdan veri gelmeden büyük değişiklik yapılmaz. Aşağıdakiler bilerek **yapılmadı**; yeniden
+açma ölçütü yazılıdır.
+
+- **HEVC (H.265) çıktı — ertelendi (1.0.14).** Çıktı her zaman H.264 `.mp4`'tür (her Windows'ta eklentisiz açılır).
+  HEVC girişte bu yüzden boyut ~1,4x olur (`CODEC_RATE_FACTOR` 1,4; görüntü korunur). "Girişle aynı format"
+  (HEVC→HEVC) boyutu ~1,0x'e indirirdi; ama:
+  - kazanç sadece disk alanı (1,8 Mbit'lik 10 dk video için ~55 MB/video; günde 100 videoda ~5,5 GB),
+  - hız ve görüntüde kazanç yok; işlemcide HEVC ~6 kat yavaş (Mac ölçümü: x264 1,2 sn / x265 7,1 sn),
+  - çok parça: HEVC aday ayarları + ölçüm (`TUNE_VERSION`), grafik yoksa H.264'e dönüş, 10-bit/HDR, açılabilirlik,
+  - Intel HEVC'yi geliştirme ortamında denemek mümkün değil.
+
+  Yapay HEVC girişte ölçüm (Mac, 1,8 Mbit 1080p30): H.264 1,4x pay 1,43x / SSIM 0,9870; H.264 1,0x 1,02x / 0,9858;
+  HEVC (x265) 1,01x / 0,9863. Gerçek kamera görüntüsünde fark daha büyük olabilir.
+  **Yeniden açma ölçütü:** HEVC kullanıcısı disk alanından şikâyet ederse **ya da** teşhis raporlarında
+  10-bit/HDR giriş görülürse (H.264 8-bit çıktı renkleri soldurabilir). O zaman kullanıcının gerçek videosundan
+  30 sn'lik parçayla ölçülerek yapılır.
+- **AV1 girişte yavaşlık — veri bekleniyor (1.0.14).** i5-1135G7'de 1080p60 AV1 1,8x (H.264 3,7x). Windows ffmpeg
+  paketinde `libdav1d` yok (yazılım okuyucu olarak yavaş `libaom` / yerleşik `av1` var); donanım okuyucu
+  (`av1_qsv`, `av1_d3d11va`) devreye girmemiş olabilir. Rapordaki "okuyucu" alanı sebebi gösterecek; okuyucu
+  yazılımsa AV1'de donanım okuyucu (yedekli) zorlanır.
+- **Sunucu / otomatik veri gönderimi — yapılmadı.** Teşhis raporu sadece elle kopyalanır (bölüm 6).
+
+## 8. Güncelleme
 
 - Her yayında GitHub Release'e `version.json` konur:
   `{"latest", "min_supported", "url", "sha256", "notes"}`.
@@ -291,7 +317,7 @@ Saklanan ayarlar (QSettings `ZamanMakinesi/ZamanMakinesi`): `theme`, `output_dir
   güncellenemez.
 - GitHub'ın "latest" linki birkaç dakika önbellekte kalabilir; yeni sürüm herkese birkaç dakika içinde ulaşır.
 
-## 8. Zaman Adam ve animasyonlar
+## 9. Zaman Adam ve animasyonlar
 
 - **Zaman Adam:** uygulama simgesinin (mavi kare, kadran, geri dönen ok) kollu bacaklı, yüzlü hali. Pozlar:
   `run` (koşar), `wave` (el sallar), `ok` (bir kez zıplayıp başparmağını kaldırır, sonra durur),
@@ -300,7 +326,7 @@ Saklanan ayarlar (QSettings `ZamanMakinesi/ZamanMakinesi`): `theme`, `output_dir
 - Yeni satırlar yumuşakça belirir; silinen tarih/video solup kapanarak gider.
 - Açık ve koyu tema renkleri `gui.LIGHT` / `gui.DARK`; kendi kendini çizen parçalar `theme`'den okur.
 
-## 9. Dağıtım
+## 10. Dağıtım
 
 - Depo: `github.com/berkyymn/zaman-makinesi` (public, MIT lisans). Kişisel hesap.
 - Kullanıcıya verilen tek link (hep en son sürüm):
@@ -314,7 +340,7 @@ Saklanan ayarlar (QSettings `ZamanMakinesi/ZamanMakinesi`): `theme`, `output_dir
 - Kullanıcı verileri (`%LOCALAPPDATA%\Zaman Makinesi\`): `zaman-makinesi.log` (hata kaydı, ~3 MB'ı geçmez),
   `hiz-olcumu.json` (en hızlı ayar), `istatistik.json` (teşhis için son 50 işin teknik bilgisi).
 
-## 10. Sürüm yayınlama kontrol listesi
+## 11. Sürüm yayınlama kontrol listesi
 
 Her yayında **sırayla, eksiksiz**:
 
@@ -323,6 +349,7 @@ Her yayında **sırayla, eksiksiz**:
    - `QT_QPA_PLATFORM=offscreen uv run python tests/gui_test.py` → hepsi geçmeli.
    - `uv run gui.py --self-test` → çıkış kodu 0.
    - `uv run python tests/tune_test.py` → hız ölçümü kuralları (grafik varken işlemci seçilmez vb.).
+   - `uv run python tests/info_test.py` → video bilgisi (fps, bit hızı, 10-bit, HDR) ve okuyucu bilgisi.
    - Görsel değişiklik varsa Mac'te `uv run gui.py` ile elle bakıldı (açık + koyu tema).
 3. **`TUNE_VERSION` kararı** (`main.py`): Şunlardan biri değiştiyse **artır**, yoksa **dokunma**:
    `PROFILES` (aday ekleme/çıkarma/ayar değişikliği), ölçüm yöntemi (`tune`: deneme videosu, seçim ve boyut
@@ -341,7 +368,7 @@ Her yayında **sırayla, eksiksiz**:
 7. **Derlemeyi izle:** GitHub Actions'ta "Paketlenmiş uygulamayı dene" adımı geçmeli (Türkçe dosya adı,
    işleme, hız ölçümü). Sonra `releases/download/vX.Y.Z/version.json` kontrol edilir.
 
-## 11. Dosyalar
+## 12. Dosyalar
 
 | Dosya | Görev |
 |---|---|
@@ -354,6 +381,7 @@ Her yayında **sırayla, eksiksiz**:
 | `onizleme.py` | Komut satırı: saatin nasıl duracağını tek karede gösterir |
 | `tests/gui_test.py` | Arayüzün uçtan uca testi (ekransız, deneme videolarını kendisi üretir) |
 | `tests/tune_test.py` | Hız ölçümü kuralları (kodlayıcı taklit edilir, grafik birimi gerekmez) |
+| `tests/info_test.py` | Video bilgisi ve okuyucu bilgisinin okunması (deneme videolarını kendisi üretir) |
 | `packaging/` | Inno Setup betiği, `version.json` üreten betik, kurulum uyarısı görselini çizen betik |
 | `.github/workflows/release.yml` | `v*` etiketinde Windows'ta derle, kendi testini çalıştır, yayınla |
 | `README.md`, `LICENSE` | Kurulum adımları, geliştirme komutları, MIT |
