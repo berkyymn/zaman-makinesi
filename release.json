@@ -1,4 +1,4 @@
 {
   "min_supported": "1.0.6",
-  "notes": "Videolar artık çok daha hızlı işleniyor: bilgisayarınızda Intel, AMD ya da NVIDIA grafik hızlandırması varsa kendiliğinden kullanılıyor, yoksa işlemcide eskisinden yaklaşık 3 kat hızlı. Hangisinin kullanıldığını Ayarlar'daki 'Hız' kartında görebilirsiniz."
+  "notes": "Ayarlar ekranı yenilendi: tüm ayarlar tek, sade bir listede. Klasör yolunun gidip gelme hatası düzeltildi."
 }
