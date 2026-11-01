@@ -1,4 +1,4 @@
 {
   "min_supported": "1.0.6",
-  "notes": "Yeni sürüm çıkınca Zaman Adam size haber veriyor ve Ayarlar butonunda kırmızı nokta beliriyor. Ayarlar güncellemeleri kendisi de denetliyor. 'Listeyi temizle' artık 'Hepsini temizle'."
+  "notes": "Videolar artık çok daha hızlı işleniyor: bilgisayarınızda Intel, AMD ya da NVIDIA grafik hızlandırması varsa kendiliğinden kullanılıyor, yoksa işlemcide eskisinden yaklaşık 3 kat hızlı. Hangisinin kullanıldığını Ayarlar'daki 'Hız' kartında görebilirsiniz."
 }
