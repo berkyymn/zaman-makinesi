@@ -153,6 +153,12 @@ ayrı bir çıktı üretir. İşler sırayla, tek tek işlenir. Çıktıda ses y
 - Kodlayıcı otomatik seçilir (`main.ENCODER = "auto"`): açılışta arka planda 1 sn'lik denemeyle sırayla
   **NVIDIA (NVENC) → Intel (Quick Sync) → AMD (AMF)** yoklanır, ilk çalışan kullanılır; hiçbiri yoksa
   **işlemci (x264 veryfast)**. Seçim Ayarlar'daki "Hız" kartında ve hata kaydında görünür.
+- **Bu bilgisayara özel ayar (tune):** İlk açılışta (ve her sürüm güncellemesinden sonra bir kez) arka planda
+  6 sn'lik 1080p bir deneme videosu, çalışan her ailenin aday ayarlarıyla gerçek işlemden geçirilir:
+  NVENC p4/p1, Quick Sync medium/veryfast/düşük güç, AMF balanced/speed, işlemci (donanımla çözmeli ve
+  çözmesiz). En hızlı olan seçilir (daha az bilinen bir ayara ancak en az %10 daha hızlıysa geçilir) ve
+  `hiz-olcumu.json`'a yazılır; sonuçlar hata kaydında görünür. Kullanıcı o sırada video işlemeye başlarsa
+  ölçüm bırakılır, bir sonraki açılışta yapılır.
 - Yedek: grafik birimi bir videoda hata verirse o video kendiliğinden işlemciyle baştan yapılır.
   İşlemci kodlayıcısı uygulamanın içinde geldiği için her bilgisayarda çalışır.
 - Ölçüm (Mac, 60 sn 1080p30, 2 çekirdekle sınırlı): x264 medium 21,8 sn → veryfast 6,2 sn (3,5x).

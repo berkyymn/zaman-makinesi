@@ -53,7 +53,7 @@ WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 CRF = 23
 
 # Videoyu sıkıştıracak kodlayıcı. "auto" = bilgisayarda hangisi varsa en hızlısı
-# (NVIDIA / Intel / AMD grafik, yoksa işlemci). Elle seçmek için: "nvenc", "qsv", "amf", "cpu"
+# (NVIDIA / Intel / AMD grafik, yoksa işlemci). Elle seçmek için PROFILES'tan bir anahtar: "qsv", "cpu"...
 ENCODER = "auto"
 
 # Klasörler (proje klasörüne göre)
@@ -66,12 +66,14 @@ OVERWRITE = False
 # =============================================================================
 
 import difflib
+import json
 import os
 import re
 import shutil
 import subprocess
 import tempfile
 import threading
+import time
 import unicodedata
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -188,26 +190,45 @@ def check_start_times(input_dir, videos):
         parse_time(START_TIME)
 
 
-# Denenecek kodlayıcılar, en hızlıdan yavaşa: (ekranda görünen ad, ffmpeg ayarları).
-# Ekran kartı ya da işlemcinin içindeki grafik birimi, videoyu işlemcinin kendisinden çok daha hızlı sıkıştırır.
-ENCODERS = {
-    "nvenc": ("NVIDIA ekran kartı", ["-c:v", "h264_nvenc", "-preset", "p4", "-rc", "vbr", "-cq", str(CRF),
-                                     "-b:v", "0", "-pix_fmt", "yuv420p"]),
-    "qsv": ("Intel grafik (Quick Sync)", ["-c:v", "h264_qsv", "-preset", "medium", "-global_quality", str(CRF),
-                                          "-pix_fmt", "nv12"]),
-    "amf": ("AMD grafik", ["-c:v", "h264_amf", "-quality", "balanced", "-rc", "cqp",
-                           "-qp_i", str(CRF), "-qp_p", str(CRF), "-pix_fmt", "nv12"]),
-    "cpu": ("İşlemci", ["-c:v", "libx264", "-preset", "veryfast", "-crf", str(CRF), "-pix_fmt", "yuv420p"]),
+# Grafik birimleri ve işlemci için aday ayarlar: anahtar -> (aile, ffmpeg ayarları, donanımla çözme).
+# Her ailenin ilki en güvenli ayardır. Hangisinin en hızlı olduğu bilgisayardan bilgisayara değiştiği için
+# uygulama bunları bir kez kendi bilgisayarında ölçer (tune) ve en hızlısını kullanır.
+FAMILIES = {
+    "nvenc": "NVIDIA ekran kartı",
+    "qsv": "Intel grafik (Quick Sync)",
+    "amf": "AMD grafik",
+    "cpu": "İşlemci",
+}
+_NV = ["-c:v", "h264_nvenc", "-rc", "vbr", "-cq", str(CRF), "-b:v", "0", "-pix_fmt", "yuv420p"]
+_QSV = ["-c:v", "h264_qsv", "-global_quality", str(CRF), "-pix_fmt", "nv12"]
+_AMF = ["-c:v", "h264_amf", "-rc", "cqp", "-qp_i", str(CRF), "-qp_p", str(CRF), "-pix_fmt", "nv12"]
+_X264 = ["-c:v", "libx264", "-preset", "veryfast", "-crf", str(CRF), "-pix_fmt", "yuv420p"]
+PROFILES = {
+    "nvenc":      ("nvenc", [*_NV, "-preset", "p4"], True),
+    "nvenc_fast": ("nvenc", [*_NV, "-preset", "p1"], True),
+    "qsv":        ("qsv", [*_QSV, "-preset", "medium"], True),
+    "qsv_fast":   ("qsv", [*_QSV, "-preset", "veryfast"], True),
+    "qsv_lp":     ("qsv", [*_QSV, "-preset", "veryfast", "-low_power", "1"], True),  # yeni Intel'lerde
+    "amf":        ("amf", [*_AMF, "-quality", "balanced"], True),
+    "amf_fast":   ("amf", [*_AMF, "-quality", "speed"], True),
+    "cpu":        ("cpu", _X264, False),
+    "cpu_hwdec":  ("cpu", _X264, True),  # zayıf işlemcide videoyu grafik birimi çözsün
 }
 
-_encoder = None
+_encoder = None  # kullanılan ayar (PROFILES anahtarı)
 _encoder_lock = threading.Lock()
+_busy = threading.Event()  # video işlenirken ölçüm yapılmaz (sonuç bozulur, iş yavaşlar)
+tuned = False  # bu bilgisayar için ölçülerek mi seçildi
+
+
+def profile_name(key):
+    return FAMILIES[PROFILES[key][0]]
 
 
 def encoder_works(key):
     # Bir saniyelik boş görüntüyü sıkıştırmayı dener; sürücüsü olmayan kart burada elenir
     cmd = [find_ffmpeg(), "-hide_banner", "-loglevel", "error", "-f", "lavfi",
-           "-i", "color=black:s=1280x720:r=30:d=1", "-frames:v", "5", *ENCODERS[key][1], "-f", "null", "-"]
+           "-i", "color=black:s=1280x720:r=30:d=1", "-frames:v", "5", *PROFILES[key][1], "-f", "null", "-"]
     try:
         return subprocess.run(cmd, capture_output=True, timeout=20, creationflags=NO_WINDOW).returncode == 0
     except (OSError, subprocess.TimeoutExpired):
@@ -215,7 +236,8 @@ def encoder_works(key):
 
 
 def pick_encoder():
-    # Bilgisayardaki en hızlı çalışan kodlayıcı; bir kez denenir, sonra hatırlanır
+    # Hemen kullanılabilecek güvenli seçim: çalışan ilk grafik biriminin varsayılan ayarı, yoksa işlemci.
+    # tune() sonra bunu bu bilgisayar için en hızlı ayarla değiştirebilir.
     global _encoder
     with _encoder_lock:
         if _encoder is None:
@@ -225,6 +247,64 @@ def pick_encoder():
             else:
                 _encoder = next((k for k in ("nvenc", "qsv", "amf") if encoder_works(k)), "cpu")
         return _encoder
+
+
+def tune(cache_file, version):
+    """Bu bilgisayardaki en hızlı ayarı bir kez ölçer ve hatırlar.
+
+    Birkaç saniyelik 1080p bir deneme videosu, çalışan her ayarla gerçek işlemle (okuma + saat + sıkıştırma)
+    işlenir; en kısa sürede bitiren seçilir. Uygulama sürümü değişince yeniden ölçülür.
+    Ölçüm sonuçlarını {ayar: saniye} olarak döner; ölçülemezse None.
+    """
+    global _encoder, tuned
+    if os.environ.get("ZM_ENCODER", ENCODER) != "auto":
+        return None
+    try:
+        cached = json.loads(Path(cache_file).read_text(encoding="utf-8"))
+        if cached.get("version") == version and cached.get("profile") in PROFILES:
+            _encoder, tuned = cached["profile"], True
+            return cached.get("results")
+    except (OSError, ValueError):
+        pass
+
+    pick_encoder()
+    families = {"cpu"} | {f for f in ("nvenc", "qsv", "amf") if encoder_works(f)}
+    candidates = [k for k, (fam, _, _) in PROFILES.items() if fam in families]
+    results = {}
+    with tempfile.TemporaryDirectory() as d:
+        sample = Path(d) / "olcum.mp4"
+        subprocess.run([find_ffmpeg(), "-y", "-loglevel", "error", "-f", "lavfi",
+                        "-i", "testsrc2=s=1920x1080:r=30:d=6,noise=alls=3:allf=t",
+                        "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", str(sample)],
+                       check=True, creationflags=NO_WINDOW)
+        start = datetime(2026, 1, 1)
+        for key in candidates:
+            if _busy.is_set():
+                return None  # kullanıcı video işlemeye başladı; bir dahaki açılışta ölçülür
+            out = Path(d) / f"{key}.mp4"
+            began = time.perf_counter()
+            try:
+                encode(sample, out, start, 6.0, key, None, lambda f: None, lambda: _busy.is_set())
+            except (RuntimeError, Cancelled):
+                continue
+            if out.exists() and out.stat().st_size > 0:
+                results[key] = round(time.perf_counter() - began, 2)
+    if not results or _busy.is_set():
+        return None
+
+    # Aday sırası güvenliden hızlıya; ancak en az %10 daha hızlıysa daha az bilinen ayara geçilir
+    best = min(results, key=lambda k: candidates.index(k))
+    for key in sorted(results, key=lambda k: candidates.index(k)):
+        if results[key] < results[best] * 0.9:
+            best = key
+    with _encoder_lock:
+        _encoder, tuned = best, True
+    try:
+        Path(cache_file).write_text(json.dumps({"version": version, "profile": best, "results": results}),
+                                    encoding="utf-8")
+    except OSError:
+        pass
+    return results
 
 
 def video_duration(src):
@@ -251,12 +331,14 @@ def drawtext_filter(start):
             f"x={MARGIN_LEFT + PADDING}:y={MARGIN_TOP + PADDING}")
 
 
-def encode(src, tmp, start, duration, encoder, hw_decode, on_progress, should_stop):
+def encode(src, tmp, start, duration, profile, hw_decode, on_progress, should_stop):
+    # hw_decode None ise ayarın kendi tercihi kullanılır
+    _, args, prefers_hw = PROFILES[profile]
     cmd = [find_ffmpeg(), "-y", "-hide_banner", "-loglevel", "error", "-nostats",
            "-progress", "pipe:1", "-stats_period", "0.5"]
-    if hw_decode:
-        cmd += ["-hwaccel", "auto"]  # kodlamayı da mümkünse grafik birimi çözsün
-    cmd += ["-i", str(src), "-map", "0:v:0", "-vf", drawtext_filter(start), *ENCODERS[encoder][1],
+    if prefers_hw if hw_decode is None else hw_decode:
+        cmd += ["-hwaccel", "auto"]  # videoyu da mümkünse grafik birimi çözsün
+    cmd += ["-i", str(src), "-map", "0:v:0", "-vf", drawtext_filter(start), *args,
             "-an", "-movflags", "+faststart", str(tmp)]
     with tempfile.TemporaryFile() as err:
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=err, creationflags=NO_WINDOW,
@@ -296,22 +378,24 @@ def process(src, dst, start, on_progress=None, should_stop=None):
     dst.parent.mkdir(parents=True, exist_ok=True)
     tmp = dst.with_name(dst.stem + ".part.mp4")
 
-    # Önce en hızlı yol denenir; grafik birimi bu videoda sorun çıkarırsa işlemciyle baştan yapılır
-    # (İşlemci yolunda donanımla çözme kullanılmaz; ölçümde yavaşlattı.)
-    encoder = pick_encoder()
-    attempts = [("cpu", False)] if encoder == "cpu" else [(encoder, True), ("cpu", False)]
+    # Önce bu bilgisayar için seçilen en hızlı ayar denenir; grafik birimi bu videoda sorun çıkarırsa
+    # işlemciyle (donanım yardımı olmadan, en güvenli yol) baştan yapılır.
+    profile = pick_encoder()
+    attempts = [(profile, None)] if profile == "cpu" else [(profile, None), ("cpu", False)]
+    _busy.set()
     try:
-        for i, (enc, hw_decode) in enumerate(attempts):
+        for i, (prof, hw_decode) in enumerate(attempts):
             try:
-                encode(src, tmp, start, duration, enc, hw_decode, on_progress, should_stop)
+                encode(src, tmp, start, duration, prof, hw_decode, on_progress, should_stop)
                 tmp.replace(dst)
                 if not on_progress:
                     print()
-                return enc
+                return prof
             except RuntimeError:
                 if i == len(attempts) - 1:
                     raise
     finally:
+        _busy.clear()
         tmp.unlink(missing_ok=True)
 
 

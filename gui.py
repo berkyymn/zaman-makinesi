@@ -1113,7 +1113,7 @@ class Worker(QThread):
                              on_progress=lambda f, row=row: self.progress.emit(row, f),
                              should_stop=lambda row=row: self.stopped or row in self.skipped)
                 took = duration_text(max(round(time.monotonic() - began), 1))
-                log.info("Bitti (%s, %s): %s", took, main.ENCODERS[used][0], dst)
+                log.info("Bitti (%s, %s): %s", took, f"{main.profile_name(used)} / {used}", dst)
                 self.job_finished.emit(row, DONE, took)
             except main.Cancelled:
                 if self.stopped:
@@ -1320,15 +1320,22 @@ class SettingsDialog(QDialog):
             self.speed_note.setText("Bilgisayarınızdaki donanım deneniyor")
             self.speed_timer.start()
             return
-        self.speed_timer.stop()
-        if key == "cpu":
-            self.speed.setText("⚙️  İşlemci")
+        # Ölçüm arka planda sürüyorsa bitince yazı güncellensin
+        if main.tuned:
+            self.speed_timer.stop()
+        else:
+            self.speed_timer.start()
+        cpu = main.PROFILES[key][0] == "cpu"
+        self.speed.setText("⚙️  İşlemci" if cpu else f"⚡  {main.profile_name(key)}")
+        if main.tuned:
+            self.speed_note.setText("Bu bilgisayar için ölçülüp en hızlısı seçildi")
+        elif cpu:
             self.speed_note.setText("Grafik hızlandırma bulunamadı")
         else:
-            self.speed.setText(f"⚡  {main.ENCODERS[key][0]}")
-            self.speed_note.setText("Otomatik seçildi, en hızlı yol")
-        self.speed.setToolTip("Açılışta NVIDIA, Intel ve AMD hızlandırması denenir; hiçbiri yoksa işlemci "
-                              "kullanılır. Bir videoda sorun çıkarsa o video işlemciyle yeniden yapılır.")
+            self.speed_note.setText("Otomatik seçildi")
+        self.speed.setToolTip("Uygulama ilk açılışta bu bilgisayardaki NVIDIA, Intel ve AMD hızlandırmasını ve "
+                              "işlemciyi birkaç ayarla dener, en hızlısını kullanır. Bir videoda sorun çıkarsa "
+                              "o video işlemciyle yeniden yapılır.")
 
     def _open_log(self):
         path = log_path()
@@ -1996,11 +2003,26 @@ def self_test():
             dst = output_path(Path(d), src, start)
             used = main.process(src, dst, start, on_progress=lambda f: None)
             assert dst.stat().st_size > 0, "çıktı boş"
-        log.write_text(f"OK {info} · kodlayıcı: {used}\n", encoding="utf-8")
+            results = main.tune(Path(d) / "hiz.json", "self-test")
+            assert results, "hız ölçümü yapılamadı"
+        log.write_text(f"OK {info} · kodlayıcı: {used} · ölçüm: {results} -> {main._encoder}\n", encoding="utf-8")
         return 0
     except Exception:
         log.write_text(traceback.format_exc(), encoding="utf-8")
         return 1
+
+
+def tune_encoder():
+    # Açılışta arka planda: önce güvenli seçim, sonra bu bilgisayar için bir kerelik hız ölçümü
+    log.info("Kodlayıcı: %s", main.profile_name(main.pick_encoder()))
+    try:
+        results = main.tune(log_path().with_name("hiz-olcumu.json"), __version__)
+    except Exception:
+        log.exception("Hız ölçümü yapılamadı")
+        return
+    if results:
+        table = ", ".join(f"{k} {v} sn" for k, v in sorted(results.items(), key=lambda kv: kv[1]))
+        log.info("Hız ölçümü: %s -> seçilen: %s", table, main._encoder)
 
 
 def run():
@@ -2013,8 +2035,7 @@ def run():
     app.setStyle("Fusion")
     sys.excepthook = show_error
     setup_log()
-    threading.Thread(target=lambda: log.info("Kodlayıcı: %s", main.ENCODERS[main.pick_encoder()][0]),
-                     daemon=True).start()
+    threading.Thread(target=tune_encoder, daemon=True).start()
 
     window = MainWindow()
     apply_theme(window.theme_choice)
