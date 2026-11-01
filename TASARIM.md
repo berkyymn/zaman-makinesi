@@ -81,6 +81,7 @@ ayrı bir çıktı üretir. İşler sırayla, tek tek işlenir. Çıktıda ses y
 | İşleniyor | koşan Zaman Adam + mavi ilerleme çubuğu + "%X · 12 sn" (süre canlı sayılır) |
 | Tamamlandı | tik yok; Zaman Adam bir kez zıplayıp başparmağını kaldırır ve öyle kalır + yeşil "Tamamlandı · 42 sn sürdü" + **Göster** (en sağda) |
 | Zaten vardı | gri "Zaten vardı, atlandı" + **Göster** |
+| Sıradan çıkarıldı | gri "Sıradan çıkarıldı"; bir sonraki çalıştırmada yeniden işlenebilir |
 | Hata | kırmızı ⚠ + düz Türkçe mesaj ("Diskte yer kalmadı", "Video bulunamadı…", "Video okunamadı…"); ayrıntı hata kaydına yazılır, bir sonraki çalıştırmada tekrar denenir |
 | (uyarı) | sarı "⚠ Gelecekte bir tarih, doğru mu?" — işi engellemez |
 
@@ -102,6 +103,8 @@ ayrı bir çıktı üretir. İşler sırayla, tek tek işlenir. Çıktıda ses y
 - Tarih alanları, ekleme/silme, temizleme, klasör değiştirme kilitlenir.
 - Başlıktaki saatin akrebi ve yelkovanı **geriye** döner.
 - Bilgisayar uykuya geçmez (Windows: SetThreadExecutionState, macOS: caffeinate).
+- Sıradaki ve işlenen her satırın sağında kırmızı **✕ İptal** olur: sıradakini hemen sıradan çıkarır,
+  işleneni durdurur ("İptal ediliyor…"); diğerleri devam eder. Yarım dosya silinir.
 - Ana buton **Durdur** olur. Durdurulunca o anki iş kesilir (yarım dosya silinir),
   kalan işler Hazır'a döner.
 

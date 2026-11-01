@@ -49,6 +49,7 @@ UPDATE_CHECK_EVERY = 12 * 3600
 
 # Bir işin (video + tarih) durumları
 READY, QUEUED, RUNNING, DONE, EXISTS, ERROR = "ready", "queued", "running", "done", "exists", "error"
+CANCELLED = "cancelled"  # işlem sürerken kullanıcı sıradan çıkardı; sonra yeniden işlenebilir
 
 # =============================================================================
 # Tema
@@ -729,6 +730,8 @@ class DateRow(QWidget):
     changed = Signal()
     completed = Signal(str)          # geçerli bir tarih yazıldı
     next_requested = Signal(object)  # Enter'a basıldı
+    cancel_requested = Signal(object)  # işlem sürerken "✕ İptal"
+
     def __init__(self):
         super().__init__()
         self.state = READY
@@ -738,6 +741,7 @@ class DateRow(QWidget):
         self.warning = ""      # işlenir ama kullanıcıya sorulur ("Gelecekte bir tarih" gibi)
         self.touched = False   # kullanıcı alandan çıktı mı (eksik tarih uyarısı için)
         self.locked = False
+        self.cancelling = False  # çalışan iş iptal edildi, ffmpeg'in durması bekleniyor
         self.output = None
 
         self.edit = DateEdit()
@@ -758,6 +762,10 @@ class DateRow(QWidget):
         self.show_btn.setToolTip("Çıktıyı klasöründe göster")
         self.show_btn.clicked.connect(lambda: self.output and reveal(self.output))
         self.show_btn.setFocusPolicy(Qt.ClickFocus)  # Tab sadece tarih alanları arasında gezsin
+        self.cancel_btn = QToolButton(text="✕  İptal")
+        self.cancel_btn.setObjectName("cancel")
+        self.cancel_btn.setFocusPolicy(Qt.ClickFocus)
+        self.cancel_btn.clicked.connect(lambda: self.cancel_requested.emit(self))
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -768,6 +776,7 @@ class DateRow(QWidget):
         layout.addWidget(self.bar)
         layout.addSpacing(4)
         layout.addWidget(self.status, 1)
+        layout.addWidget(self.cancel_btn)
         layout.addWidget(self.show_btn)
         self.render()
 
@@ -789,10 +798,10 @@ class DateRow(QWidget):
         return not self.is_empty() and not self.problem
 
     def is_pending(self):
-        return self.is_job() and self.state in (READY, ERROR)
+        return self.is_job() and self.state in (READY, ERROR, CANCELLED)
 
     def _on_edit(self):
-        if self.state == ERROR:
+        if self.state in (ERROR, CANCELLED):
             self.state = READY
         self.changed.emit()
         if self.value() is not None:
@@ -810,6 +819,7 @@ class DateRow(QWidget):
         elif state != RUNNING:
             self.ticker.stop()
         self.state, self.progress, self.message = state, progress, message
+        self.cancelling = False
         if output:
             self.output = output
         self.render()
@@ -836,11 +846,16 @@ class DateRow(QWidget):
         self.buddy.setVisible(self.state in (RUNNING, DONE))
         self.bar.setValue(int(self.progress * 1000))
         self.show_btn.setVisible(finished and self.output is not None)
+        self.cancel_btn.setVisible(self.state in (QUEUED, RUNNING) and not self.cancelling)
+        self.cancel_btn.setToolTip("Bu videoyu sıradan çıkar" if self.state == QUEUED else
+                                   "Bu videoyu durdur, sıradakilerle devam et")
 
         if visible_problem:
             text, style = self.problem, "error"
         elif self.state == QUEUED:
             text, style = "Sırada", "muted"
+        elif self.state == RUNNING and self.cancelling:
+            text, style = "İptal ediliyor…", "muted"
         elif self.state == RUNNING:
             elapsed = duration_text(time.monotonic() - self.started)
             text, style = f"%{int(self.progress * 100)}  ·  {elapsed}", "muted"
@@ -852,6 +867,8 @@ class DateRow(QWidget):
             text, style = "Zaten vardı, atlandı", "muted"
         elif self.state == ERROR:
             text, style = f"⚠  {self.message}", "error"
+        elif self.state == CANCELLED:
+            text, style = "Sıradan çıkarıldı", "muted"
         elif self.warning:
             text, style = f"⚠  {self.warning}", "warn"
         else:
@@ -865,6 +882,7 @@ class DateRow(QWidget):
 
 class VideoRow(QFrame):
     changed = Signal()
+    cancel_requested = Signal(object)              # DateRow
     date_completed = Signal(str)
     next_requested = Signal(object)                # DateRow
     remove_requested = Signal(object)
@@ -949,6 +967,7 @@ class VideoRow(QFrame):
         row.changed.connect(self.validate)
         row.completed.connect(self.date_completed)
         row.next_requested.connect(self.next_requested)
+        row.cancel_requested.connect(self.cancel_requested)
         self.dates.append(row)
         self.date_list.addWidget(row)
         if focus:
@@ -1047,9 +1066,13 @@ class Worker(QThread):
         super().__init__()
         self.jobs = jobs  # [(DateRow, kaynak, hedef, başlangıç, üzerine_yaz)]
         self.stopped = False
+        self.skipped = set()  # sıradan çıkarılan satırlar (çalışansa o an durdurulur)
 
     def stop(self):
         self.stopped = True
+
+    def skip(self, row):
+        self.skipped.add(row)
 
     def run(self):
         with keep_awake():
@@ -1059,6 +1082,9 @@ class Worker(QThread):
         for row, src, dst, start, overwrite in self.jobs:
             if self.stopped:
                 return
+            if row in self.skipped:
+                self.job_finished.emit(row, CANCELLED, "")
+                continue
             if dst.exists() and not overwrite:
                 self.job_finished.emit(row, EXISTS, "")
                 continue
@@ -1068,14 +1094,17 @@ class Worker(QThread):
             try:
                 used = main.process(src, dst, start,
                              on_progress=lambda f, row=row: self.progress.emit(row, f),
-                             should_stop=lambda: self.stopped)
+                             should_stop=lambda row=row: self.stopped or row in self.skipped)
                 took = duration_text(max(round(time.monotonic() - began), 1))
                 log.info("Bitti (%s, %s): %s", took, main.ENCODERS[used][0], dst)
                 self.job_finished.emit(row, DONE, took)
             except main.Cancelled:
-                log.info("Durduruldu: %s", src)
-                self.job_finished.emit(row, READY, "")
-                return
+                if self.stopped:
+                    log.info("Durduruldu: %s", src)
+                    self.job_finished.emit(row, READY, "")
+                    return
+                log.info("Sıradan çıkarıldı: %s", src)
+                self.job_finished.emit(row, CANCELLED, "")
             except Exception as e:
                 log.exception("Hata: %s", src)
                 self.job_finished.emit(row, ERROR, friendly_error(e, src, dst))
@@ -1560,6 +1589,7 @@ class MainWindow(QMainWindow):
                 if prefill and row.dates:
                     row.dates[0].edit.setText(prefill)
                 row.changed.connect(self.refresh)
+                row.cancel_requested.connect(self.cancel_job)
                 row.date_completed.connect(self.remember_date)
                 row.next_requested.connect(self.focus_next_date)
                 row.remove_requested.connect(self.remove_video)
@@ -1771,6 +1801,19 @@ class MainWindow(QMainWindow):
         self.worker.start()
         self.refresh()
 
+    def cancel_job(self, row):
+        # İşlem sürerken tek bir videoyu sıradan çıkarır; diğerleri devam eder
+        if not self.worker or row.state not in (QUEUED, RUNNING):
+            return
+        self.worker.skip(row)
+        self.run_total -= 1
+        if row.state == QUEUED:
+            row.set_state(CANCELLED)
+        else:
+            row.cancelling = True
+            row.render()
+        self.refresh()
+
     def count_job(self, row, state, message):
         if state in (DONE, EXISTS, ERROR):
             self.run_done += state != ERROR
@@ -1782,6 +1825,8 @@ class MainWindow(QMainWindow):
     def on_finished(self):
         if self.worker.stopped:
             self.toast.say("Durdurdunuz. Kalanlar sırada bekliyor.", "wave")
+        elif not self.run_done and not self.run_errors:
+            self.toast.say("Tamam, hepsini sıradan çıkardım.", "wave")
         elif self.run_errors:
             self.toast.say(f"{self.run_done} video hazır, {self.run_errors} tanesinde sorun çıktı. "
                            "Kırmızı satırlara bakın.", "wave", 5000)

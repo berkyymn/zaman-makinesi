@@ -222,6 +222,27 @@ check("Durdur: 'Durduruluyor' yazıyor", "Durduruluyor" in w.run_btn.text())
 wait_worker(w)
 check("durdurunca yarım dosya kalmadı", not list(OUT.rglob("*.part.mp4")) and lv.dates[0].state == gui.READY)
 
+# --- Tek tek iptal: 1. çalışırken iptal, 2. sıradan çıkar, 3. işlensin ----------------
+lv.add_date(); lv.add_date(); pump()
+lv.dates[1].edit.setText("16.10.2026 10:00:00"); lv.dates[2].edit.setText("17.10.2026 10:00:00"); pump()
+first, second, third = lv.dates
+answers[:] = [True]; w.run_or_stop(); pump(50)
+check("iptal: sıradakinde '✕ İptal' görünüyor", second.state == gui.QUEUED and second.cancel_btn.isVisible())
+second.cancel_btn.click(); pump()
+check("iptal: sıradaki hemen 'Sıradan çıkarıldı'", second.state == gui.CANCELLED and "çıkarıldı" in second.status.text())
+while first.state != gui.RUNNING:
+    pump(10)
+first.cancel_btn.click(); pump(30)
+check("iptal: çalışan 'İptal ediliyor'", first.state == gui.CANCELLED or "İptal ediliyor" in first.status.text())
+wait_worker(w); pump(100)
+made = sorted(p.name for p in OUT.rglob("uzun_*.mp4"))
+print("   çıktılar:", made)
+check("iptal: sadece 3. işlendi", first.state == gui.CANCELLED and second.state == gui.CANCELLED
+      and third.state == gui.DONE and made == ["uzun_17_10_2026_10_00_00.mp4"])
+check("iptal: yarım dosya kalmadı", not list(OUT.rglob("*.part.mp4")))
+check("iptal: iptal edilenler yeniden işlenebilir", first.is_pending() and second.is_pending()
+      and "(2)" in w.run_btn.text())
+
 # --- Güncelleme duyurusu ve ayarlar -------------------------------------------------
 newinfo = updater.UpdateInfo({"latest": "9.9.9", "url": "x", "sha256": "ab", "notes": "Yeni şeyler."})
 opened = []
