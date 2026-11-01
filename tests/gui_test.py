@@ -159,8 +159,7 @@ check("Bitenleri temizle görünüyor", w.clear_done_btn.isVisible())
 check("'Hepsini temizle' adı", w.clear_btn.text() == "Hepsini temizle")
 gui.apply_theme("dark"); shot(w, "06_bitti_koyu.png"); gui.apply_theme("light")
 pump(5200)
-check("balon birkaç saniye sonra kayboldu (ya da bir kerelik rapor hatırlatması geldi)",
-      not w.toast.isVisible() or "Hız raporunuz" in w.toast.text.text())
+check("balon birkaç saniye sonra kayboldu", not w.toast.isVisible())
 
 answers[:] = [False]; w.run_or_stop(); pump()
 check("işlenecek yokken başlamadı", w.worker is None)
@@ -319,7 +318,7 @@ check("teşhis: raporda dosya adı ve tarih yok",
       not any(x in report for x in ("a_deniz", "uzun", "silinecek", "12.10.2026", str(OUT))))
 w.copy_report()
 check("teşhis: panoya kopyalandı", "teşhis raporu" in app.clipboard().text())
-check("teşhis: hatırlatma bir kez yapıldı", w.settings.value("report_reminded", False, type=bool))
+check("teşhis: hatırlatma balonu yok", "Hız raporunuz" not in w.toast.text.text())
 
 print(f"\n{sum(results)}/{len(results)} geçti")
 shutil.rmtree(WORK, ignore_errors=True)

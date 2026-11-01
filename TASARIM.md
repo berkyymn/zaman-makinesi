@@ -162,7 +162,7 @@ varken kırmızı nokta olur. Pencere en az 580 px'tir; yazı tipi büyük bilgi
 yazı kırpılmasın diye kendiliğinden genişler.
 
 Saklanan ayarlar (QSettings `ZamanMakinesi/ZamanMakinesi`): `theme`, `output_dir`, `monthly`,
-`last_input_dir`, `last_update_check`, `report_reminded`.
+`last_input_dir`, `last_update_check`.
 
 ## 5. Hız: video işleme ve en hızlı ayar
 
@@ -210,8 +210,14 @@ Saklanan ayarlar (QSettings `ZamanMakinesi/ZamanMakinesi`): `theme`, `output_dir
 - **Yedek:** seçilen ayar bir videoda hata verirse o video kendiliğinden `cpu` ile (donanım yardımı olmadan)
   baştan yapılır. İşlemci kodlayıcısı uygulamanın içinde geldiği için her bilgisayarda çalışır.
 - `ZM_ENCODER=<ayar>` ortam değişkeni (ya da `main.ENCODER`) seçimi zorlar ve ölçümü kapatır (deneme için).
-- Ölçülen gerçek sonuçlar, i5-1135G7 (Iris Xe), 10 dk 1080p30 video: eski sürüm (Python + x264 medium)
-  15 dk 13 sn → Quick Sync 3 dk 05 sn → (TUNE_VERSION 1'in yanlışlıkla seçtiği) işlemci 4 dk 36 sn.
+- Ölçülen gerçek sonuçlar, i5-1135G7 (Iris Xe), 10 dk 1080p30 video:
+
+  | Sürüm | Yöntem | Süre | Gerçek zamanın |
+  |---|---|---|---|
+  | 1.0.6 | Python'da kare kare + x264 medium | 15 dk 13 sn | 0,66x |
+  | 1.0.7 | ffmpeg + Quick Sync (varsayılan) | 3 dk 05 sn | 3,2x |
+  | 1.0.10 | TUNE v1 yanlışlıkla işlemci seçti | 4 dk 36 sn | 2,2x |
+  | 1.0.11 | TUNE v2: ölçülüp seçilen Quick Sync ayarı | **2 dk 29 sn** | **4,0x** (ilk sürümden ~6 kat hızlı) |
 - `TUNE_VERSION` geçmişi: **1** ilk ölçüm (6 sn, kolay içerik, işlemci dahil). **2** grafik birimi varsa
   işlemci yarıştırılmaz; 20 sn kumlu deneme, hazırlık hariç hız.
 - Grafik kodlayıcısı olmayan donanımlar işlemciye düşer: "F" ile biten Intel işlemciler, grafiksiz Ryzen,
@@ -226,10 +232,9 @@ Saklanan ayarlar (QSettings `ZamanMakinesi/ZamanMakinesi`): `theme`, `output_dir
   (`istatistik.json`). Rapor anında ayrıca işletim sistemi, işlemci, RAM, grafik birim(ler)i + sürücü sürümü
   (Windows'ta PowerShell `Win32_VideoController`) ve son hız ölçümü (`hiz-olcumu.json`) eklenir.
 - **Asla toplanmaz:** dosya/klasör adları, girilen tarihler, video içeriği, kullanıcı/bilgisayar adı.
-- **Ne zaman gönderilir:** Ayarlar → **Teşhis bilgisini kopyala** ile her zaman. Ayrıca **ilk 3 video
-  işlendikten sonra bir kez** (o zaman rapor hem ölçümü hem gerçek hızları içerir) Zaman Adam balonu
-  hatırlatır: "Hız raporunuz hazır! Bana tıklayın, kopyalayayım…"; tıklanınca kopyalar ve "Kopyalandı!
-  WhatsApp ya da e-postaya yapıştırıp geliştiriciye gönderin" der.
+- **Ne zaman gönderilir:** Sadece kullanıcı isteyince: Ayarlar → **Teşhis bilgisini kopyala** (tıklayınca
+  "✓ Kopyalandı, gönderebilirsiniz"). Uygulama hatırlatmaz, balon çıkarmaz. En faydalı an: ölçümden sonra
+  birkaç video işlenmişken (rapor hem ölçümü hem gerçek hızları içerir); geliştirici istediğinde gönderilir.
 - Rapor biçimi:
   ```
   Zaman Makinesi teşhis raporu · sürüm 1.0.12

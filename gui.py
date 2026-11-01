@@ -2203,7 +2203,6 @@ class MainWindow(QMainWindow):
                     row.set_state(READY)
         self.refresh()
         QApplication.alert(self)  # pencere arkadaysa görev çubuğunda yanıp söner
-        self.remind_report()
 
     def closeEvent(self, event):
         if self.tuner:
@@ -2252,20 +2251,6 @@ class MainWindow(QMainWindow):
             QApplication.clipboard().setText(diagnostics_report())
         finally:
             QApplication.restoreOverrideCursor()
-
-    def remind_report(self):
-        # İlk 3 video bittikten sonra bir kez: rapor artık işe yarar bilgi içeriyor (ölçüm + gerçek hızlar)
-        if self.settings.value("report_reminded", False, type=bool) or load_stats().get("total_jobs", 0) < 3:
-            return
-        self.settings.setValue("report_reminded", True)
-
-        def copy():
-            self.copy_report()
-            self.toast.say("Kopyalandı! WhatsApp ya da e-postaya yapıştırıp geliştiriciye gönderin. 🙏", "ok", 5000)
-
-        QTimer.singleShot(5500, self, lambda: self.toast.say(
-            "Hız raporunuz hazır! Bana tıklayın, kopyalayayım; uygulamayı geliştirmemize yardımcı olur.",
-            "wave", 9000, on_click=copy))
 
     def open_update(self):
         if self.worker:
