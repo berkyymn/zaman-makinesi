@@ -1,4 +1,4 @@
 {
   "min_supported": "1.0.6",
-  "notes": "Önemli düzeltme: bazı Intel bilgisayarlarda çıktı dosyaları gereğinden çok büyüyordu. Hız ölçümü artık dosya boyutunu da hesaba katıyor; güncellemeden sonraki ilk açılışta ölçüm bir kez yeniden yapılır. Ayarlar'a 'Teşhis bilgisini kopyala' eklendi."
+  "notes": "Çıktı dosyaları artık girdi videonuzla yaklaşık aynı boyutta; bazı videolarda gereksiz büyüme düzeltildi. Hız ölçümü görüntü kalitesini de karşılaştırıyor; güncellemeden sonraki ilk açılışta bir kez yeniden yapılır."
 }
