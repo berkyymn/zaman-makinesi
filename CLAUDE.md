@@ -12,6 +12,7 @@ Bu depo, videolara akan saat basan bir Windows masaüstü uygulamasıdır (PySid
 - **Testler** (her değişiklikten sonra):
   - `QT_QPA_PLATFORM=offscreen uv run python tests/gui_test.py`
   - `uv run gui.py --self-test`
+  - `uv run python tests/tune_test.py`
   - Yeni davranış eklediysen `tests/gui_test.py`'ye kontrolünü de ekle.
 - **Kullanıcı 50–60 yaşında olabilir:** arayüz metinleri düz Türkçe; soru pencerelerinde varsayılan (mavi)
   buton güvenli seçenek; teknik hata metni gösterme (hata kaydına yaz).

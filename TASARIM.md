@@ -177,9 +177,19 @@ Saklanan ayarlar (QSettings `ZamanMakinesi/ZamanMakinesi`): `theme`, `output_dir
   Grafik ailelerinde video mümkünse grafik biriminde çözülür (`-hwaccel auto`).
 - **Hemen kullanılabilir seçim** (`pick_encoder`): açılışta 1 sn'lik denemeyle NVIDIA → Intel → AMD yoklanır,
   ilk çalışanın varsayılan ayarı; yoksa `cpu`.
-- **En hızlı ayar ölçümü** (`tune`): 6 sn'lik 1080p30 deneme videosu, çalışan **tüm** ailelerin aday ayarlarıyla
-  gerçek işlemden geçirilir. En hızlısı seçilir; daha az bilinen (listede sonra gelen) bir ayara ancak
-  **en az %10 daha hızlıysa** geçilir. Sonuç `hiz-olcumu.json`'a, ayrıntı hata kaydına yazılır.
+- **En hızlı ayar ölçümü** (`tune`):
+  - **Grafik birimi varsa işlemci yarıştırılmaz.** Sadece çalışan grafik ailelerinin (birden çok varsa
+    hepsinin) ayarları ölçülür. İşlemci ayarları yalnızca grafik birimi yoksa ya da grafik ayarlarının hiçbiri
+    çalışmazsa ölçülür. Sebep (i5-1135G7'de ölçüldü): kısa denemede işlemci turbo ve kolay içerik sayesinde
+    hızlı görünür (4,9x) ama gerçek 10 dk'lık videoda yavaştır (2,2x); Quick Sync ikisinde de 3,2x.
+  - Deneme videosu: `TUNE_SAMPLE_SECONDS` (20) sn'lik, kumlu (gerçek kameraya yakın) 1080p30.
+  - Hız **hazırlık süresi hariç** ölçülür: videonun ilk `TUNE_WARMUP` (%20) kısmı sayılmaz; kalanının
+    işlenme hızı "gerçek zamanın kaç katı" olarak karşılaştırılır (büyük = hızlı).
+  - Aday sırası güvenliden hızlıya; daha az bilinen (listede sonra gelen) bir ayara ancak **en az %10 daha
+    hızlıysa** geçilir. Sonuç `hiz-olcumu.json`'a, ayrıntı hata kaydına yazılır
+    (`Hız ölçümü: qsv_lp 4.4x, qsv_fast 3.9x, qsv 3.5x -> seçilen: qsv_lp`).
+  - Her biten işin gerçek hızı da kayda yazılır (`Bitti (3 dk 05 sn, 3.2x gerçek zaman, qsv): …`);
+    ölçümün doğru seçip seçmediği buradan kontrol edilir.
 - **Ne zaman ölçülür** — sadece:
   1. İlk açılışta (kayıt yoksa),
   2. Çalışan grafik aileleri değişince (ör. ekran kartı takıldı/çıkarıldı),
@@ -187,19 +197,21 @@ Saklanan ayarlar (QSettings `ZamanMakinesi/ZamanMakinesi`): `theme`, `output_dir
   4. Kullanıcı Ayarlar'da **Yeniden ölç**'e basınca.
 
   Normal sürüm güncellemeleri **yeniden ölçtürmez**.
-- **Ölçüm ekranı:** pencerenin üstünü kaplar, **iptal edilemez**, bitene kadar işlem başlatılamaz. Büyüteçle
+- **Ölçüm ekranı** ("Genelde yarım dakika, en fazla iki dakika sürer"): pencerenin üstünü kaplar, **iptal edilemez**, bitene kadar işlem başlatılamaz. Büyüteçle
   arayan Zaman Adam, "En hızlı ayar aranıyor…", ilerleme ve "Intel grafik (Quick Sync) · hızlı ayar
   deneniyor · 3 / 7". Bitince Zaman Adam başparmağını kaldırır: "Buldum! 🎉 Bu bilgisayarda en hızlısı: …",
   ekran 2 sn sonra kapanır. Ölçüm sürerken gelen güncelleme duyurusu ölçüm bitince gösterilir.
-- **Süre sınırı:** her ayar en fazla `TUNE_STEP_LIMIT` (20 sn; aşılırsa ffmpeg kapatılır, o ayar elenir),
-  ölçümün tamamı en fazla `TUNE_TOTAL_LIMIT` (75 sn). Toplam süre dolarsa ölçüm bırakılır, **güvenli
+- **Süre sınırı:** her ayar en fazla `TUNE_STEP_LIMIT` (45 sn; aşılırsa ffmpeg kapatılır, o ayar elenir),
+  ölçümün tamamı en fazla `TUNE_TOTAL_LIMIT` (120 sn). Toplam süre dolarsa ölçüm bırakılır, **güvenli
   varsayılan** (`pick_encoder` sonucu) seçilip kaydedilir ("Güvenli ayarla devam ediyorum"); yeniden ölçüm
   sadece yukarıdaki 2–4. durumlarda olur.
 - **Yedek:** seçilen ayar bir videoda hata verirse o video kendiliğinden `cpu` ile (donanım yardımı olmadan)
   baştan yapılır. İşlemci kodlayıcısı uygulamanın içinde geldiği için her bilgisayarda çalışır.
 - `ZM_ENCODER=<ayar>` ortam değişkeni (ya da `main.ENCODER`) seçimi zorlar ve ölçümü kapatır (deneme için).
-- Ölçülen gerçek sonuç: i5-1135G7 (Iris Xe), 10 dk 1080p30 video: eski sürüm 15 dk 13 sn → Quick Sync
-  (ölçüm öncesi varsayılan) 3 dk 05 sn.
+- Ölçülen gerçek sonuçlar, i5-1135G7 (Iris Xe), 10 dk 1080p30 video: eski sürüm (Python + x264 medium)
+  15 dk 13 sn → Quick Sync 3 dk 05 sn → (TUNE_VERSION 1'in yanlışlıkla seçtiği) işlemci 4 dk 36 sn.
+- `TUNE_VERSION` geçmişi: **1** ilk ölçüm (6 sn, kolay içerik, işlemci dahil). **2** grafik birimi varsa
+  işlemci yarıştırılmaz; 20 sn kumlu deneme, hazırlık hariç hız.
 - Grafik kodlayıcısı olmayan donanımlar işlemciye düşer: "F" ile biten Intel işlemciler, grafiksiz Ryzen,
   GT 710/730/1030, RX 6400/6500 XT.
 
@@ -252,6 +264,7 @@ Her yayında **sırayla, eksiksiz**:
 2. **Testler:**
    - `QT_QPA_PLATFORM=offscreen uv run python tests/gui_test.py` → hepsi geçmeli.
    - `uv run gui.py --self-test` → çıkış kodu 0.
+   - `uv run python tests/tune_test.py` → hız ölçümü kuralları (grafik varken işlemci seçilmez vb.).
    - Görsel değişiklik varsa Mac'te `uv run gui.py` ile elle bakıldı (açık + koyu tema).
 3. **`TUNE_VERSION` kararı** (`main.py`): Şunlardan biri değiştiyse **artır**, yoksa **dokunma**:
    `PROFILES` (aday ekleme/çıkarma/ayar değişikliği), ölçüm yöntemi (`tune`: deneme videosu, seçim kuralı,
@@ -279,6 +292,7 @@ Her yayında **sırayla, eksiksiz**:
 | `release.json` | `min_supported` + sürüm notu |
 | `onizleme.py` | Komut satırı: saatin nasıl duracağını tek karede gösterir |
 | `tests/gui_test.py` | Arayüzün uçtan uca testi (ekransız, deneme videolarını kendisi üretir) |
+| `tests/tune_test.py` | Hız ölçümü kuralları (kodlayıcı taklit edilir, grafik birimi gerekmez) |
 | `packaging/` | Inno Setup betiği, `version.json` üreten betik, kurulum uyarısı görselini çizen betik |
 | `.github/workflows/release.yml` | `v*` etiketinde Windows'ta derle, kendi testini çalıştır, yayınla |
 | `README.md`, `LICENSE` | Kurulum adımları, geliştirme komutları, MIT |

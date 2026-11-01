@@ -642,7 +642,7 @@ class TuneWorker(QThread):
     """Bu bilgisayar için en hızlı ayarı bulur. Daha önce ölçüldüyse hemen biter (tuning sinyali gelmez)."""
     tuning = Signal()                    # ölçüm başlıyor (ekran gösterilsin)
     step = Signal(int, int, str)         # sıra, toplam, ayar
-    done = Signal(object, bool)          # ({ayar: saniye} ya da None, süre aşıldı mı)
+    done = Signal(object, bool)          # ({ayar: gerçek zamanın kaç katı} ya da None, süre aşıldı mı)
 
     def __init__(self, force=False):
         super().__init__()
@@ -660,7 +660,7 @@ class TuneWorker(QThread):
             self.tuning.emit()
             results, timed_out = main.tune(tune_cache(), families, on_step=self.step.emit,
                                            should_stop=lambda: self.cancelled)
-            table = ", ".join(f"{k} {v} sn" for k, v in sorted((results or {}).items(), key=lambda kv: kv[1]))
+            table = ", ".join(f"{k} {v}x" for k, v in sorted((results or {}).items(), key=lambda kv: -kv[1]))
             log.info("Hız ölçümü%s: %s -> seçilen: %s", " (süre doldu)" if timed_out else "",
                      table or "-", main._encoder)
             self.done.emit(results, timed_out)
@@ -714,8 +714,8 @@ class TuneOverlay(QFrame):
         self.hide_timer.stop()
         self.buddy.set_mode("search")
         self.title.setText("En hızlı ayar aranıyor…")
-        self.body.setText("Bu bilgisayar için bir kereliğine ölçüm yapıyorum. Genelde birkaç saniye, "
-                          "en fazla bir dakika sürer; sonra videolarınız en hızlı yoldan işlenir.")
+        self.body.setText("Bu bilgisayar için bir kereliğine ölçüm yapıyorum. Genelde yarım dakika, "
+                          "en fazla iki dakika sürer; sonra videolarınız en hızlı yoldan işlenir.")
         self.bar.setRange(0, 0)  # adım sayısı belli olana kadar akan çubuk
         self.step_label.setText("Hazırlanıyor…")
         self.setGeometry(self.parentWidget().rect())
@@ -1272,8 +1272,13 @@ class Worker(QThread):
                 used = main.process(src, dst, start,
                              on_progress=lambda f, row=row: self.progress.emit(row, f),
                              should_stop=lambda row=row: self.stopped or row in self.skipped)
-                took = duration_text(max(round(time.monotonic() - began), 1))
-                log.info("Bitti (%s, %s): %s", took, f"{main.profile_name(used)} / {used}", dst)
+                elapsed = max(time.monotonic() - began, 0.1)
+                took = duration_text(max(round(elapsed), 1))
+                try:
+                    speed = f"{main.video_duration(src) / elapsed:.1f}x gerçek zaman"
+                except RuntimeError:
+                    speed = "?"
+                log.info("Bitti (%s, %s, %s): %s", took, speed, used, dst)
                 self.job_finished.emit(row, DONE, took)
             except main.Cancelled:
                 if self.stopped:

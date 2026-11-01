@@ -250,12 +250,16 @@ def pick_encoder():
 
 # Ölçümün ne zaman yeniden yapılacağı: aday ayarlar ya da ölçüm yöntemi değişince bu sayıyı artırın.
 # Uygulamanın her sürümünde değil; metin değişikliği gibi güncellemeler yeniden ölçtürmez.
-TUNE_VERSION = 1
+# 1: ilk ölçüm. 2: grafik birimi varsa işlemciyle yarıştırılmaz; ölçüm daha uzun, kumlu videoyla ve
+#    hazırlık süresi hariç (1. sürüm kısa/kolay denemede işlemciyi turbo sayesinde hızlı sanıyordu).
+TUNE_VERSION = 2
 
 # Ölçüm süre sınırları (saniye). Bir ayar takılırsa ya da bilgisayar çok yavaşsa ölçüm bunları aşmaz;
 # toplam süre dolarsa güvenli varsayılan ayar seçilir.
-TUNE_STEP_LIMIT = 20
-TUNE_TOTAL_LIMIT = 75
+TUNE_STEP_LIMIT = 45
+TUNE_TOTAL_LIMIT = 120
+TUNE_SAMPLE_SECONDS = 20  # deneme videosunun uzunluğu
+TUNE_WARMUP = 0.2         # videonun ilk %20'si hazırlık sayılır, hıza katılmaz
 
 
 def working_families():
@@ -287,53 +291,71 @@ def tune_candidates(families):
 def tune(cache_file, families, on_step=None, should_stop=None):
     """Bu bilgisayardaki en hızlı ayarı ölçer, seçer ve kaydeder.
 
-    6 sn'lik 1080p bir deneme videosu, çalışan her aday ayarla gerçek işlemden geçirilir
-    (okuma + saat + sıkıştırma); en kısa sürede bitiren seçilir.
-    Her ayar en fazla TUNE_STEP_LIMIT sn sürebilir; toplam TUNE_TOTAL_LIMIT sn dolarsa ölçüm bırakılır ve
-    güvenli varsayılan ayar (pick_encoder) seçilip kaydedilir.
+    Kurallar:
+    - Çalışan bir grafik birimi varsa sadece grafik ayarları yarıştırılır; işlemci hiç seçilmez.
+      Kısa bir denemede işlemci turbo sayesinde hızlı görünür ama uzun, gerçek videolarda grafik birimi
+      çok daha hızlıdır (i5-1135G7: deneme işlemci 4,9x / Quick Sync 3,2x; gerçek 10 dk video işlemci 2,2x /
+      Quick Sync 3,2x). İşlemci ayarları sadece grafik birimi yoksa ya da hiçbiri çalışmazsa ölçülür.
+    - TUNE_SAMPLE_SECONDS sn'lik, kumlu (gerçek kameraya yakın) 1080p30 deneme videosu kullanılır.
+    - Hız, hazırlık süresi hariç ölçülür: videonun ilk TUNE_WARMUP kısmı sayılmaz; kalanının
+      işlenme hızı (gerçek zamanın kaç katı) karşılaştırılır.
+    - Her ayar en fazla TUNE_STEP_LIMIT sn sürebilir; toplam TUNE_TOTAL_LIMIT sn dolarsa ölçüm bırakılır ve
+      güvenli varsayılan ayar (pick_encoder) seçilip kaydedilir.
     on_step(sıra, toplam, ayar): her denemeden önce çağrılır.
     should_stop(): True dönerse (uygulama kapanıyor) hiçbir şey kaydedilmeden çıkılır.
-    Döner: ({ayar: saniye}, süre_aşıldı_mı) ya da kapatıldıysa (None, False).
+    Döner: ({ayar: gerçek zamanın kaç katı}, süre_aşıldı_mı) ya da kapatıldıysa (None, False).
     """
     global _encoder, tuned
     stop = should_stop or (lambda: False)
     deadline = time.monotonic() + TUNE_TOTAL_LIMIT
     out_of_time = lambda: time.monotonic() > deadline
-    candidates = tune_candidates(families)
+    gpu = [f for f in families if f != "cpu"]
     results = {}
     timed_out = False
+    seconds = TUNE_SAMPLE_SECONDS
     with tempfile.TemporaryDirectory() as d:
         sample = Path(d) / "olcum.mp4"
         try:
             subprocess.run([find_ffmpeg(), "-y", "-loglevel", "error", "-f", "lavfi",
-                            "-i", "testsrc2=s=1920x1080:r=30:d=6,noise=alls=3:allf=t",
-                            "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", str(sample)],
-                           check=True, creationflags=NO_WINDOW, timeout=TUNE_STEP_LIMIT)
+                            "-i", f"testsrc2=s=1920x1080:r=30:d={seconds},noise=alls=12:allf=t+u",
+                            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "18", "-pix_fmt", "yuv420p",
+                            str(sample)], check=True, creationflags=NO_WINDOW, timeout=TUNE_STEP_LIMIT)
         except (subprocess.SubprocessError, OSError):
             timed_out = True
         start = datetime(2026, 1, 1)
-        for i, key in enumerate(candidates):
-            if timed_out:
-                break
-            if stop():
-                return None, False
-            if out_of_time():
-                timed_out = True
-                break
-            if on_step:
-                on_step(i, len(candidates), key)
-            out = Path(d) / f"{key}.mp4"
-            began = time.perf_counter()
-            limit = min(TUNE_STEP_LIMIT, max(deadline - time.monotonic(), 1))
-            try:
-                encode(sample, out, start, 6.0, key, None, False, lambda: stop() or out_of_time(), timeout=limit)
-            except (RuntimeError, Cancelled):
-                continue
-            if out.exists() and out.stat().st_size > 0:
-                results[key] = round(time.perf_counter() - began, 2)
+
+        def measure(candidates):
+            nonlocal timed_out
+            for i, key in enumerate(candidates):
+                if timed_out or stop():
+                    return
+                if out_of_time():
+                    timed_out = True
+                    return
+                if on_step:
+                    on_step(i, len(candidates), key)
+                marks = []  # (ilerleme, zaman)
+                limit = min(TUNE_STEP_LIMIT, max(deadline - time.monotonic(), 1))
+                try:
+                    encode(sample, Path(d) / f"{key}.mp4", start, seconds, key, None,
+                           lambda f: marks.append((f, time.perf_counter())),
+                           lambda: stop() or out_of_time(), timeout=limit)
+                except (RuntimeError, Cancelled):
+                    continue
+                end = time.perf_counter()
+                warm = next(((f, t) for f, t in marks if f >= TUNE_WARMUP), None)
+                if warm and warm[0] < 0.95 and end > warm[1]:
+                    results[key] = round(seconds * (1 - warm[0]) / (end - warm[1]), 2)
+
+        # Önce grafik birimleri; hiçbiri yoksa ya da hiçbiri çalışmadıysa işlemci
+        if gpu:
+            measure(tune_candidates(gpu))
+        if not results and not stop():
+            measure(tune_candidates(["cpu"]))
     if stop():
         return None, False
 
+    candidates = tune_candidates(families)
     if timed_out or not results:
         # Süre doldu: ölçmeye devam etmeden güvenli varsayılanla çalışılır
         best, timed_out = pick_encoder(), True
@@ -342,7 +364,7 @@ def tune(cache_file, families, on_step=None, should_stop=None):
         order = sorted(results, key=candidates.index)
         best = order[0]
         for key in order:
-            if results[key] < results[best] * 0.9:
+            if results[key] > results[best] * 1.1:
                 best = key
     with _encoder_lock:
         _encoder, tuned = best, True
@@ -384,7 +406,7 @@ def encode(src, tmp, start, duration, profile, hw_decode, on_progress, should_st
     # (sürücü takılıp hiç çıktı vermese bile).
     _, args, prefers_hw = PROFILES[profile]
     cmd = [find_ffmpeg(), "-y", "-hide_banner", "-loglevel", "error", "-nostats",
-           "-progress", "pipe:1", "-stats_period", "0.5"]
+           "-progress", "pipe:1", "-stats_period", "0.25"]
     if prefers_hw if hw_decode is None else hw_decode:
         cmd += ["-hwaccel", "auto"]  # videoyu da mümkünse grafik birimi çözsün
     cmd += ["-i", str(src), "-map", "0:v:0", "-vf", drawtext_filter(start), *args,
