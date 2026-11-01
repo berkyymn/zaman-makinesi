@@ -28,7 +28,7 @@ from PySide6.QtCore import (QEasingCurve, QParallelAnimationGroup, QPauseAnimati
                             QThread, QTimer, QUrl, QVariantAnimation, Signal)
 from PySide6.QtGui import QColor, QDesktopServices, QFont, QImage, QPainter, QPalette, QPen, QPixmap
 from PySide6.QtWidgets import (QApplication, QButtonGroup, QCheckBox, QDialog, QFileDialog, QFrame,
-                               QGraphicsDropShadowEffect, QGraphicsOpacityEffect, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox,
+                               QGraphicsDropShadowEffect, QGraphicsOpacityEffect, QStackedWidget, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox,
                                QProgressBar, QPushButton, QScrollArea, QToolButton, QVBoxLayout, QWidget)
 
 import main
@@ -76,9 +76,21 @@ QWidget { font-size: 13px; color: $text; }
 #divider { background: $divider; }
 #title { font-size: 16px; font-weight: 600; }
 #dialogTitle { font-size: 17px; font-weight: 600; }
-#settingsCard { background: $card; border: 1px solid $border; border-radius: 12px; }
-#settingsCard QLabel { background: transparent; }
-#cardTitle { font-size: 14px; font-weight: 600; }
+#sideBar { background: $bg; border-right: 1px solid $divider; }
+#settingsContent { background: $card; }
+#settingsContent QLabel, #sideBar QLabel { background: transparent; }
+#settingsContent QLabel#info { background: $soft; }
+#settingsContent QLabel#pathBox { background: $bg; }
+#sideBar QLabel#navDot { background: $danger; border-radius: 5px; }
+QPushButton#navItem { text-align: left; border: none; border-radius: 10px; padding: 9px 14px;
+                      background: transparent; color: $text; font-weight: 500; }
+QPushButton#navItem:hover { background: $divider; }
+QPushButton#navItem:checked { background: $soft; color: $soft_text; font-weight: 600; }
+#pageTitle { font-size: 22px; font-weight: 600; }
+#groupLabel { font-size: 11px; font-weight: 700; color: $muted; letter-spacing: 1px; }
+#pathBox { background: $bg; border: 1px solid $border; border-radius: 8px; padding: 9px 12px;
+           font-family: $mono; font-size: 12px; }
+#bigIcon { font-size: 30px; }
 QPushButton#segLeft, QPushButton#segMid, QPushButton#segRight { border-radius: 0; padding: 6px 14px; }
 QPushButton#segLeft { border-top-left-radius: 17px; border-bottom-left-radius: 17px; }
 QPushButton#segMid { border-left: none; border-right: none; }
@@ -1104,49 +1116,16 @@ def ask(parent, title, text, details, yes, no, default_yes=True):
 
 
 class SettingsDialog(QDialog):
+    """Solda menü, sağda tek tek sayfalar: Görünüm, Çıktılar, Hız, Güncelleme."""
+
     def __init__(self, window):
         super().__init__(window)
         self.main = window
         self.setWindowTitle("Ayarlar")
-        self.setFixedWidth(560)
+        self.setFixedSize(780, 520)
         self.check = None
 
-        def card(title, hint, *rows):
-            box = QFrame()
-            box.setObjectName("settingsCard")
-            layout = QVBoxLayout(box)
-            layout.setContentsMargins(18, 14, 18, 16)
-            layout.setSpacing(8)
-            heading = QLabel(title)
-            heading.setObjectName("cardTitle")
-            layout.addWidget(heading)
-            if hint:
-                sub = QLabel(hint)
-                sub.setObjectName("small")
-                layout.addWidget(sub)
-            layout.addSpacing(2)
-            for row in rows:
-                layout.addLayout(row) if isinstance(row, QHBoxLayout) else layout.addWidget(row)
-            return box
-
-        # Üst: el sallayan Zaman Adam
-        buddy = TimeBuddy(72, mode="wave")
-        hello = QLabel("Ayarlar")
-        hello.setObjectName("dialogTitle")
-        version = QLabel(f"{APP_NAME} · sürüm {__version__}")
-        version.setObjectName("muted")
-        titles = QVBoxLayout()
-        titles.setSpacing(2)
-        titles.addStretch()
-        titles.addWidget(hello)
-        titles.addWidget(version)
-        titles.addStretch()
-        top = QHBoxLayout()
-        top.setSpacing(14)
-        top.addWidget(buddy)
-        top.addLayout(titles, 1)
-
-        # Görünüm: bitişik üç seçenek
+        # --- Görünüm
         themes = QHBoxLayout()
         themes.setSpacing(0)
         group = QButtonGroup(self)
@@ -1161,75 +1140,177 @@ class SettingsDialog(QDialog):
             group.addButton(b)
             themes.addWidget(b)
         themes.addStretch()
+        appearance = self._page("Görünüm", "Uygulamanın renklerini seçin.", [
+            ("Tema", [themes, self._hint("Sistem seçiliyse bilgisayarınızın açık/koyu ayarına uyar.")]),
+        ])
 
-        # Çıktılar
+        # --- Çıktılar
         self.out_path = QLabel()
+        self.out_path.setObjectName("pathBox")
         self.out_path.setTextInteractionFlags(Qt.TextSelectableByMouse)
         change = QPushButton("Değiştir")
         change.clicked.connect(self._pick_output)
         change.setEnabled(not window.worker)
         open_btn = QPushButton("Klasörü aç")
         open_btn.clicked.connect(window.open_output)
-        out_row = QHBoxLayout()
-        out_row.addWidget(self.out_path, 1)
-        out_row.addWidget(change)
-        out_row.addWidget(open_btn)
+        out_buttons = QHBoxLayout()
+        out_buttons.addWidget(change)
+        out_buttons.addWidget(open_btn)
+        out_buttons.addStretch()
         self.monthly = QCheckBox("Aylara göre klasörle")
         self.monthly.setChecked(window.monthly)
         self.monthly.toggled.connect(self._set_monthly)
-        self.explain = QLabel()
-        self.explain.setObjectName("small")
+        self.explain = self._hint("")
         self.example = QLabel()
-        self.example.setObjectName("small")
+        self.example.setObjectName("info")
+        self.example.setWordWrap(True)
+        output = self._page("Çıktılar", "İşlenen videoların nereye ve nasıl kaydedileceği.", [
+            ("Kayıt klasörü", [self.out_path, out_buttons]),
+            ("Düzen", [self.monthly, self.explain, self.example]),
+        ])
 
-        # Hız: videoyu sıkıştıran donanım
+        # --- Hız
+        self.speed_icon = QLabel()
+        self.speed_icon.setObjectName("bigIcon")
         self.speed = QLabel()
+        self.speed.setWordWrap(True)
+        speed_row = QHBoxLayout()
+        speed_row.setSpacing(14)
+        speed_row.addWidget(self.speed_icon, 0, Qt.AlignTop)
+        speed_row.addWidget(self.speed, 1)
         self.speed_timer = QTimer(self, interval=500)  # açılıştaki deneme sürüyorsa bitince yaz
         self.speed_timer.timeout.connect(self._show_speed)
         self._show_speed()
+        speed = self._page("Hız", "Videolar, bilgisayarınızdaki en hızlı donanımla işlenir.", [
+            ("Video işleme", [speed_row]),
+            ("Nasıl seçiliyor?", [self._hint(
+                "Uygulama açılırken NVIDIA, Intel ve AMD grafik hızlandırmasını sırayla dener ve çalışan "
+                "ilkini kullanır. Hiçbiri yoksa işlemciyle çalışır; bir videoda sorun çıkarsa o video "
+                "kendiliğinden işlemciyle yeniden yapılır.")]),
+        ])
 
-        # Yardım
-        self.update_btn = QPushButton("Güncellemeleri denetle")
-        self.update_btn.clicked.connect(self._check_updates)
-        log_btn = QPushButton("Hata kaydını aç")
-        log_btn.clicked.connect(self._open_log)
-        help_row = QHBoxLayout()
-        help_row.addWidget(self.update_btn)
-        help_row.addWidget(log_btn)
-        help_row.addStretch()
+        # --- Güncelleme
+        version = QLabel(f"<b>{APP_NAME}</b> · sürüm {__version__}")
         self.update_status = QLabel()
         self.update_status.setObjectName("small")
         self.update_status.hide()
+        self.update_btn = QPushButton("Güncellemeleri denetle")
+        self.update_btn.clicked.connect(self._check_updates)
+        update_row = QHBoxLayout()
+        update_row.addWidget(self.update_btn)
+        update_row.addStretch()
+        log_btn = QPushButton("Hata kaydını aç")
+        log_btn.clicked.connect(self._open_log)
+        log_row = QHBoxLayout()
+        log_row.addWidget(log_btn)
+        log_row.addStretch()
+        update = self._page("Güncelleme", "Yeni sürümler ve yardım.", [
+            ("Sürüm", [version, self.update_status, update_row]),
+            ("Sorun mu var?", [self._hint("Hata kaydını açıp geliştiriciye gönderebilirsiniz."), log_row]),
+        ])
+
+        # --- Sol menü
+        side = QFrame()
+        side.setObjectName("sideBar")
+        side.setFixedWidth(210)
+        side_layout = QVBoxLayout(side)
+        side_layout.setContentsMargins(14, 20, 14, 16)
+        side_layout.setSpacing(4)
+        buddy = TimeBuddy(64, mode="wave")
+        title = QLabel("Ayarlar")
+        title.setObjectName("dialogTitle")
+        side_layout.addWidget(buddy, 0, Qt.AlignHCenter)
+        side_layout.addWidget(title, 0, Qt.AlignHCenter)
+        side_layout.addSpacing(14)
+        self.pages = QStackedWidget()
+        self.nav = QButtonGroup(self)
+        self.update_dot = QLabel()
+        self.update_dot.setObjectName("navDot")
+        self.update_dot.setFixedSize(10, 10)
+        for i, (text, page) in enumerate((("🎨   Görünüm", appearance), ("📁   Çıktılar", output),
+                                          ("⚡   Hız", speed), ("🔄   Güncelleme", update))):
+            b = QPushButton(text)
+            b.setObjectName("navItem")
+            b.setCheckable(True)
+            b.clicked.connect(lambda _=False, i=i: self.pages.setCurrentIndex(i))
+            self.nav.addButton(b, i)
+            self.pages.addWidget(page)
+            if i == 3:  # yeni sürüm varsa menüde kırmızı nokta
+                row = QHBoxLayout(b)
+                row.setContentsMargins(0, 0, 12, 0)
+                row.addStretch()
+                row.addWidget(self.update_dot)
+            side_layout.addWidget(b)
+        side_layout.addStretch()
+
+        close = QPushButton("Kapat")
+        close.setObjectName("primary")
+        close.clicked.connect(self.accept)
+        bottom = QHBoxLayout()
+        bottom.setContentsMargins(32, 0, 24, 20)
+        bottom.addStretch()
+        bottom.addWidget(close)
+        content = QFrame()
+        content.setObjectName("settingsContent")
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.addWidget(self.pages, 1)
+        content_layout.addLayout(bottom)
+
+        root = QHBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+        root.addWidget(side)
+        root.addWidget(content, 1)
+
         info = window.update_info
+        self.update_dot.setVisible(bool(info and info.newer))
         if info and info.newer:
             self._show_update(info)
         elif time.time() - window.settings.value("last_update_check", 0, type=float) > UPDATE_CHECK_EVERY:
             QTimer.singleShot(300, self, self._check_updates)
         else:
             self._show_last_check()
-
-        close = QPushButton("Kapat")
-        close.setObjectName("primary")
-        close.clicked.connect(self.accept)
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(24, 20, 24, 20)
-        layout.setSpacing(12)
-        layout.addLayout(top)
-        layout.addSpacing(4)
-        layout.addWidget(card("Görünüm", "Sistem seçiliyse bilgisayarınızın açık/koyu ayarına uyar.", themes))
-        layout.addWidget(card("Çıktılar", "İşlenen videolar bu klasöre kaydedilir.",
-                              out_row, self.monthly, self.explain, self.example))
-        layout.addWidget(card("Hız", "Videolar, bilgisayarınızdaki en hızlı donanımla işlenir.", self.speed))
-        layout.addWidget(card("Yardım", "Bir sorun olursa hata kaydını geliştiriciye gönderebilirsiniz.",
-                              help_row, self.update_status))
-        layout.addSpacing(4)
-        layout.addWidget(close, 0, Qt.AlignRight)
+        # Yeni sürüm varsa doğrudan Güncelleme sayfası açılır
+        start = 3 if info and info.newer else 0
+        self.nav.button(start).setChecked(True)
+        self.pages.setCurrentIndex(start)
         self._refresh()
+
+    @staticmethod
+    def _hint(text):
+        label = QLabel(text)
+        label.setObjectName("muted")
+        label.setWordWrap(True)
+        return label
+
+    @staticmethod
+    def _page(title, subtitle, groups):
+        # Başlık, kısa açıklama ve altında ayraçlı gruplar
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(32, 28, 32, 12)
+        layout.setSpacing(6)
+        heading = QLabel(title)
+        heading.setObjectName("pageTitle")
+        sub = QLabel(subtitle)
+        sub.setObjectName("muted")
+        layout.addWidget(heading)
+        layout.addWidget(sub)
+        for name, items in groups:
+            layout.addSpacing(18)
+            label = QLabel(name.upper())
+            label.setObjectName("groupLabel")
+            layout.addWidget(label)
+            layout.addSpacing(2)
+            for item in items:
+                layout.addLayout(item) if isinstance(item, QHBoxLayout) else layout.addWidget(item)
+        layout.addStretch()
+        return page
 
     def _refresh(self):
         w = self.main
-        self.out_path.setText(self.out_path.fontMetrics().elidedText(str(w.out_dir), Qt.ElideMiddle, 290))
+        self.out_path.setText(self.out_path.fontMetrics().elidedText(str(w.out_dir), Qt.ElideMiddle, 470))
         self.out_path.setToolTip(str(w.out_dir))
         example = output_path(w.out_dir, Path("video.mp4"), datetime(2026, 10, 12, 14, 30), w.monthly)
         if w.monthly:
@@ -1249,14 +1330,19 @@ class SettingsDialog(QDialog):
     def _show_speed(self):
         key = main._encoder
         if key is None:
-            self.speed.setText("Kullanılacak donanım belirleniyor…")
+            self.speed_icon.setText("⏳")
+            self.speed.setText("<b>Belirleniyor…</b><br>Bilgisayarınızdaki donanım deneniyor.")
             self.speed_timer.start()
-        elif key == "cpu":
-            self.speed.setText("⚙️  İşlemci kullanılıyor (grafik hızlandırma bulunamadı).")
-            self.speed_timer.stop()
+            return
+        self.speed_timer.stop()
+        if key == "cpu":
+            self.speed_icon.setText("⚙️")
+            self.speed.setText("<b>İşlemci</b> kullanılıyor<br>"
+                               "Bu bilgisayarda kullanılabilir grafik hızlandırması bulunamadı.")
         else:
-            self.speed.setText(f"⚡  {main.ENCODERS[key][0]} kullanılıyor (hızlı)")
-            self.speed_timer.stop()
+            self.speed_icon.setText("⚡")
+            self.speed.setText(f"<b>{main.ENCODERS[key][0]}</b> kullanılıyor<br>"
+                               "Videolar grafik hızlandırmasıyla, işlemciye göre çok daha hızlı işlenir.")
 
     def _open_log(self):
         path = log_path()
@@ -1279,6 +1365,7 @@ class SettingsDialog(QDialog):
         self.main.update_checked()
         if info.newer:
             self.main.set_update_available(info)
+            self.update_dot.show()
             self._show_update(info)
         else:
             self.update_status.setText(f"✓  En güncel sürümü kullanıyorsunuz. (Son kontrol: {self._last_check_text()})")
