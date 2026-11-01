@@ -238,7 +238,7 @@ Saklanan ayarlar (QSettings `ZamanMakinesi/ZamanMakinesi`): `theme`, `output_dir
   | 1.0.10 | TUNE v1 yanlışlıkla işlemci seçti | 4 dk 36 sn | 2,2x |
   | 1.0.11 | TUNE v2: `qsv_lp` (düşük güç) seçti | 2 dk 29 sn | 4,0x — ama dosya 400 MB → **1 GB** ❌ |
   | 1.0.12 | TUNE v3: `qsv_fast` (boyut kuralı) | — | 3,5x — ama kalite hedefi yüzünden 400 MB → **756 MB** ❌ |
-  | 1.0.13 | Boyut tavanı (girişin bit hızı) + TUNE v4 (kalite kuralı) | (ölçülecek) | (ölçülecek) |
+  | 1.0.13 | Boyut tavanı (girişin bit hızı) + TUNE v4 (kalite kuralı), `qsv_fast` | **2 dk 47 sn** | **3,7x** — 400 MB → **387 MB** (0,97x) ✅ |
 - `TUNE_VERSION` geçmişi: **1** ilk ölçüm (6 sn, kolay içerik, işlemci dahil). **2** grafik birimi varsa
   işlemci yarıştırılmaz; 20 sn kumlu deneme, hazırlık hariç hız. **3** dosya boyutu kuralı (varsayılandan
   %10'dan büyük dosya üreten ayar elenir). **4** çıktıya bit hızı tavanı (adaylar aynı tavanla yarışır) ve
