@@ -1,4 +1,4 @@
 {
   "min_supported": "1.0.6",
-  "notes": "Ayarlar ekranı yenilendi: tüm ayarlar tek, sade bir listede. Klasör yolunun gidip gelme hatası düzeltildi."
+  "notes": "Videolar işlenirken artık istediğinizi tek tek iptal edebilirsiniz: satırın yanındaki '✕ İptal' ile sıradaki video çıkarılır ya da işlenen video durdurulur, diğerleri devam eder."
 }
